@@ -1,0 +1,26 @@
+# Нормализация переводов строк.
+#
+# Файлы PowerShell должны иметь перевод строки CRLF: Windows PowerShell 5.1
+# корректно работает с CRLF, а LF-файлы без BOM в некоторых редакторах
+# отображаются как одна строка.
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+
+# Скрипты и конфигурации для Linux и Docker — LF.
+Makefile text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
+
+# Двоичные файлы: Git не должен пытаться нормализовать их содержимое.
+*.docx binary
+*.pdf binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.db binary
+
+# Автоматически определять текстовые файлы и нормализовать их.
+* text=auto

@@ -1,11 +1,16 @@
-#!/usr/bin/env pwsh
+﻿#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Единый командный интерфейс проекта «Конференция» для Windows.
+    Single command interface for the "Conference" project on Windows.
 
 .DESCRIPTION
-    Полный аналог Makefile для среды без GNU make. Любая проверка выполняется
-    одной командой, что требуется общими требованиями к лабораторным работам.
+    Full equivalent of the Makefile for environments without GNU make.
+    Every mandatory check is executed by one command, as required by the
+    course rules ("obligatory local verification commands").
+
+    Output messages are ASCII-only on purpose: Windows PowerShell 5.1 reads
+    .ps1 files using the system code page, so non-ASCII text would break
+    parsing when the file has no BOM.
 
 .EXAMPLE
     .\scripts\dev.ps1 setup
@@ -21,7 +26,7 @@ param(
 
     [string]$File,
     [int]$Port = 8000,
-    [string]$Host_ = '127.0.0.1'
+    [string]$BindHost = '127.0.0.1'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -36,9 +41,9 @@ function Get-Python {
 }
 
 function Invoke-Py {
-    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
-    & (Get-Python) @Args
-    if ($LASTEXITCODE -ne 0) { throw "Команда завершилась с кодом $LASTEXITCODE" }
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$PyArgs)
+    & (Get-Python) @PyArgs
+    if ($LASTEXITCODE -ne 0) { throw "Command failed with exit code $LASTEXITCODE" }
 }
 
 function Get-Compose {
@@ -48,77 +53,90 @@ function Get-Compose {
 }
 
 function Show-Help {
-    Write-Host @'
-Доступные команды:
-  setup            Первоначальная настройка: venv, зависимости, .env
-  run              Локальный запуск приложения (uvicorn)
-  test             Автоматические тесты (pytest)
-  quality          Форматирование и статический анализ
-  lint             Статический анализ (ruff check)
-  format           Автоматическое форматирование кода
-  migrate          Применение миграций / создание схемы БД
-  backup           Резервная копия базы данных
-  restore -File X  Восстановление базы из резервной копии
-  verify           Полный набор локальных проверок перед коммитом
-  up               Запуск контейнерного окружения (app + PostgreSQL)
-  down             Остановка контейнерного окружения
-  logs             Логи контейнеров
-  container-check  Проверка работоспособности контейнера через /health
-  version          Показать версию приложения
-  clean            Удалить кэши и виртуальное окружение
-'@
+    Write-Host 'Available commands:'
+    Write-Host '  setup            Initial setup: venv, dependencies, .env'
+    Write-Host '  run              Run the application locally (uvicorn)'
+    Write-Host '  test             Automated tests (pytest)'
+    Write-Host '  quality          Formatting and static analysis'
+    Write-Host '  lint             Static analysis only (ruff check)'
+    Write-Host '  format           Apply automatic formatting'
+    Write-Host '  migrate          Apply migrations / create database schema'
+    Write-Host '  backup           Create a database backup'
+    Write-Host '  restore -File F  Restore the database from a backup'
+    Write-Host '  verify           Full set of local checks before commit'
+    Write-Host '  up               Start containers (app + PostgreSQL)'
+    Write-Host '  down             Stop containers'
+    Write-Host '  logs             Follow container logs'
+    Write-Host '  container-check  Check container health via /health'
+    Write-Host '  version          Print application version'
+    Write-Host '  clean            Remove caches and virtual environment'
+    Write-Host ''
+    Write-Host 'Options: -Port <int>   -BindHost <string>   -File <path>'
 }
 
 switch ($Command) {
     'help' { Show-Help }
 
     'setup' {
-        Write-Host '==> Создание виртуального окружения' -ForegroundColor Cyan
+        Write-Host '[setup] Creating virtual environment' -ForegroundColor Cyan
         python -m venv .venv
-        Write-Host '==> Установка зависимостей' -ForegroundColor Cyan
+        Write-Host '[setup] Installing dependencies' -ForegroundColor Cyan
         Invoke-Py -m pip install --upgrade pip
         Invoke-Py -m pip install -r requirements-dev.txt
         if (-not (Test-Path '.env')) {
             Copy-Item '.env.example' '.env'
-            Write-Host '==> Создан .env из .env.example (проверьте значения)' -ForegroundColor Yellow
+            Write-Host '[setup] .env created from .env.example - please review the values' -ForegroundColor Yellow
         }
-        Write-Host '==> Готово. Запуск: .\scripts\dev.ps1 run' -ForegroundColor Green
+        Write-Host '[setup] Done. Start the app: .\scripts\dev.ps1 run' -ForegroundColor Green
     }
 
     'run' {
-        Invoke-Py -m uvicorn app.main:app --host $Host_ --port $Port --reload
+        Write-Host "[run] http://${BindHost}:$Port" -ForegroundColor Cyan
+        Invoke-Py -m uvicorn app.main:app --host $BindHost --port $Port --reload
     }
 
     'test' { Invoke-Py -m pytest -q }
+
     'lint' { Invoke-Py -m ruff check . }
+
     'quality' {
         Invoke-Py -m ruff format --check .
         Invoke-Py -m ruff check .
     }
+
     'format' {
         Invoke-Py -m ruff format .
         Invoke-Py -m ruff check --fix .
     }
+
     'migrate' { Invoke-Py -m scripts.migrate }
+
     'backup' { Invoke-Py -m scripts.backup }
+
     'restore' {
-        if (-not $File) { throw 'Укажите файл: .\scripts\dev.ps1 restore -File backups\<файл>' }
+        if (-not $File) {
+            throw 'Specify a backup file: .\scripts\dev.ps1 restore -File backups\<file>'
+        }
         Invoke-Py -m scripts.restore $File
     }
 
     'verify' {
+        Write-Host '[verify] 1/4 ruff format --check' -ForegroundColor Cyan
         Invoke-Py -m ruff format --check .
+        Write-Host '[verify] 2/4 ruff check' -ForegroundColor Cyan
         Invoke-Py -m ruff check .
+        Write-Host '[verify] 3/4 pytest' -ForegroundColor Cyan
         Invoke-Py -m pytest -q
+        Write-Host '[verify] 4/4 smoke check' -ForegroundColor Cyan
         Invoke-Py -m scripts.smoke
-        Write-Host '==> Все локальные проверки пройдены' -ForegroundColor Green
+        Write-Host '[verify] All local checks passed' -ForegroundColor Green
     }
 
     'up' {
         $compose = Get-Compose
         & $compose[0] $compose[1] up --build -d
-        if ($LASTEXITCODE -ne 0) { throw 'Не удалось запустить контейнеры' }
-        Write-Host "==> Приложение: http://${Host_}:$Port  Swagger: http://${Host_}:$Port/docs" -ForegroundColor Green
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to start containers' }
+        Write-Host "[up] Application: http://${BindHost}:$Port  Swagger: http://${BindHost}:$Port/docs" -ForegroundColor Green
     }
 
     'down' {
@@ -132,6 +150,7 @@ switch ($Command) {
     }
 
     'container-check' { Invoke-Py -m scripts.container_check }
+
     'version' { Invoke-Py -c "from app import __version__; print(__version__)" }
 
     'clean' {
@@ -140,6 +159,6 @@ switch ($Command) {
         }
         Get-ChildItem -Recurse -Directory -Filter '__pycache__' |
             ForEach-Object { Remove-Item -Recurse -Force $_.FullName }
-        Write-Host '==> Кэши удалены' -ForegroundColor Green
+        Write-Host '[clean] Caches removed' -ForegroundColor Green
     }
 }

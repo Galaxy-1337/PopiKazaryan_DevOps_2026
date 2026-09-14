@@ -121,7 +121,7 @@ git branch --show-current
 make verify
 ```
 
-Команда выполняет `ruff format --check`, `ruff check`, `pytest` (52 теста) и дымовую проверку
+Команда выполняет `ruff format --check`, `ruff check`, `pytest` (55 тестов) и дымовую проверку
 приложения. **Пока проверка не зелёная — коммитить нельзя.**
 
 ### Ручная проверка в браузере
@@ -231,37 +231,46 @@ git log --oneline --graph --decorate -12
 ## Шаг 7. Моделирование и разрешение конфликта слияния
 
 Конфликт создаётся намеренно: две ветки меняют одну и ту же строку одного и того же файла.
+Ниже приведён **тот сценарий, который уже выполнен в этом репозитории** — конфликт в файле
+`.env.example` (строка `SECTION_CAPACITY`).
 
 ### 7.1 Создать конфликт
 
 ```powershell
-# Ветка A: правим версию приложения
+# Ветка A: 5 мест в секции
 git switch main
-git switch -c feature/version-a
-# в app/__init__.py меняем __version__ = "0.1.1" и добавляем строку в README
-git add .
-git commit -m "chore: поднять версию до 0.1.1"
-git push -u origin feature/version-a
+git switch -c chore/2-capacity-a
+# в .env.example ставим SECTION_CAPACITY=5
+git add .env.example
+git commit -m "chore(config): поднять вместимость секции до 5 мест"
+git push -u origin chore/2-capacity-a
 ```
 
 Не сливая ветку A, создать ветку B от `main`, которая меняет **ту же строку** иначе:
 
 ```powershell
 git switch main
-git switch -c feature/version-b
-# в app/__init__.py ставим __version__ = "0.1.2", в README пишем другую строку
-git add .
-git commit -m "chore: поднять версию до 0.1.2"
-git push -u origin feature/version-b
+git switch -c chore/3-capacity-b
+# в .env.example ставим SECTION_CAPACITY=4
+git add .env.example
+git commit -m "chore(config): увеличить вместимость секции до 4 мест"
+git push -u origin chore/3-capacity-b
 ```
 
 ### 7.2 Слить первую ветку
 
-Создать и слить PR из `feature/version-a` в `main` (шаг 6). После слияния:
+Создать и слить PR из `chore/2-capacity-a` в `main` (шаг 6). После слияния:
 
 ```powershell
 git switch main
 git pull --ff-only
+```
+
+Если PR создавать не хочется (например, чтобы просто получить конфликт), ветку можно слить
+локально:
+
+```powershell
+git merge --no-ff -m "merge: влить chore/2-capacity-a (вместимость 5 мест)" chore/2-capacity-a
 ```
 
 ### 7.3 Получить конфликт
@@ -269,14 +278,14 @@ git pull --ff-only
 Слить вторую ветку в `main` — Git сообщит о конфликте:
 
 ```powershell
-git merge feature/version-b
+git merge --no-ff chore/3-capacity-b
 ```
 
 Ожидаемый вывод:
 
 ```
-Auto-merging app/__init__.py
-CONFLICT (content): Merge conflict in app/__init__.py
+Auto-merging .env.example
+CONFLICT (content): Merge conflict in .env.example
 Automatic merge failed; fix conflicts and then commit the result.
 ```
 
@@ -289,24 +298,25 @@ git status
 ```
 Unmerged paths:
   (use "git add <file>..." to mark resolution)
-        both modified:   app/__init__.py
+        both modified:   .env.example
 ```
 
 ### 7.4 Разрешить конфликт
 
 Открыть файл в VS Code. Git вставил маркеры:
 
-```python
+```text
+# Максимальное число участников в одной секции
 <<<<<<< HEAD
-__version__ = "0.1.1"
+SECTION_CAPACITY=5
 =======
-__version__ = "0.1.2"
->>>>>>> feature/version-b
+SECTION_CAPACITY=4
+>>>>>>> chore/3-capacity-b
 ```
 
 Порядок разрешения:
 
-1. Понять, какое значение верное (в нашем случае — большая версия `0.1.2`).
+1. Понять, какое значение верное (в нашем случае — вместимость `5` мест).
 2. Удалить маркеры `<<<<<<<`, `=======`, `>>>>>>>` и лишний вариант — оставить одну строку.
 3. Проверить, что не потерялись изменения обеих сторон, которые должны сохраниться.
 4. Проверить, что конфликтов не осталось:
@@ -325,8 +335,8 @@ Select-String -Path . -Pattern '^(<<<<<<<|=======|>>>>>>>)' -Recurse -ErrorActio
 6. Зафиксировать результат слияния:
 
 ```powershell
-git add app/__init__.py
-git commit -m "merge: разрешить конфликт версий (оставлена 0.1.2)"
+git add .env.example
+git commit -m "merge: разрешить конфликт вместимости секции (оставлено 5 мест)"
 git push
 ```
 
