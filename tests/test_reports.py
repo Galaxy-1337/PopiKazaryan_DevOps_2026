@@ -63,3 +63,71 @@ def test_report_for_unknown_conference(client: TestClient) -> None:
     response = client.get("/api/v1/reports/conference/424242")
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "not_found"
+
+
+def test_mailing_list_groups_accepted_participants(
+    client: TestClient, conference: dict, sections: list[dict], participants: list[dict]
+) -> None:
+    """Список рассылки группирует участников принятых заявок по организациям."""
+    application = client.post(
+        "/api/v1/applications",
+        json={
+            "conference_id": conference["id"],
+            "section_id": sections[0]["id"],
+            "participant_id": participants[0]["id"],
+            "topic": "Доклад для списка рассылки",
+        },
+    ).json()
+    client.post(f"/api/v1/applications/{application['id']}/submit")
+    client.post(
+        f"/api/v1/applications/{application['id']}/decision",
+        json={"accept": True, "comment": "Принято"},
+    )
+
+    body = client.get(f"/api/v1/reports/mailing-list/{conference['id']}").json()
+    assert body["conference_id"] == conference["id"]
+    assert body["organizations_total"] == 1
+    assert body["recipients_total"] == 1
+    assert body["items"][0]["organization"] == "Московский Политех"
+    assert body["items"][0]["emails"] == [participants[0]["email"]]
+
+
+def test_mailing_list_ignores_unaccepted_applications(
+    client: TestClient, conference: dict, sections: list[dict], participants: list[dict]
+) -> None:
+    """Заявки без решения и отклонённые заявки в список рассылки не попадают."""
+    submitted = client.post(
+        "/api/v1/applications",
+        json={
+            "conference_id": conference["id"],
+            "section_id": sections[0]["id"],
+            "participant_id": participants[0]["id"],
+            "topic": "Заявка без решения",
+        },
+    ).json()
+    client.post(f"/api/v1/applications/{submitted['id']}/submit")
+
+    rejected = client.post(
+        "/api/v1/applications",
+        json={
+            "conference_id": conference["id"],
+            "section_id": sections[1]["id"],
+            "participant_id": participants[1]["id"],
+            "topic": "Отклонённая заявка",
+        },
+    ).json()
+    client.post(f"/api/v1/applications/{rejected['id']}/submit")
+    client.post(
+        f"/api/v1/applications/{rejected['id']}/decision",
+        json={"accept": False, "comment": "Не соответствует тематике"},
+    )
+
+    body = client.get(f"/api/v1/reports/mailing-list/{conference['id']}").json()
+    assert body["recipients_total"] == 0
+    assert body["items"] == []
+
+
+def test_mailing_list_for_unknown_conference(client: TestClient) -> None:
+    response = client.get("/api/v1/reports/mailing-list/424242")
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
