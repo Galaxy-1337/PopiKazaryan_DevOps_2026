@@ -96,6 +96,11 @@ docs(hotel): описать методы API для гостиницы
 
 ## 5. Запрос на слияние (Pull Request)
 
+> Запрос на слияние создаётся **только через веб-интерфейс GitHub** — команды `git` для этого
+> не существует. После `git push -u origin <ветка>` откройте
+> `https://github.com/Galaxy-1337/PopiKazaryan_DevOps_2026/pulls` → **New pull request**,
+> укажите `main` как base и свою ветку как compare.
+
 Шаблон описания PR:
 
 ```markdown

@@ -195,6 +195,12 @@ git push -u origin feature/4-hotel-booking
 
 ## Шаг 6. Запрос на слияние (Pull Request)
 
+> **Внимание.** Создать запрос на слияние можно только из веб-интерфейса GitHub — в Git нет
+> команды для создания PR. Если ветка уже отправлена (`git push -u origin <ветка>`), GitHub
+> показывает на странице репозитория кнопку **Compare & pull request**. Откройте
+> `https://github.com/Galaxy-1337/PopiKazaryan_DevOps_2026/pulls` и нажмите
+> **New pull request**, если подсказка не появилась.
+
 1. Открыть репозиторий на GitHub — появится подсказка **Compare & pull request**.
 2. Base: `main`, compare: `feature/4-hotel-booking`.
 3. Заголовок: `feat(hotel): учёт потребности в гостинице (#4)`.
