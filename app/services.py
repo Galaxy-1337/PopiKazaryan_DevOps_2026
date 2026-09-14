@@ -66,6 +66,11 @@ STATUS_TITLES: dict[ApplicationStatus, str] = {
 
 ACTIVE_SECTION_STATUSES = (ApplicationStatus.SUBMITTED, ApplicationStatus.ACCEPTED)
 
+# Вместимость секции по умолчанию, если значение не задано в конференции.
+DEFAULT_SECTION_CAPACITY = 4
+# Максимальная вместимость секции, которую допускает интерфейс организатора.
+MAX_SECTION_CAPACITY = 100
+
 
 class DomainError(Exception):
     """Нарушено правило предметной области.
