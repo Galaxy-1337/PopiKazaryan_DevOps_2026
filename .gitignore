@@ -1,0 +1,56 @@
+# --- Секреты и локальные данные: НИКОГДА не коммитить -----------------
+.env
+.env.*
+!.env.example
+
+# --- База данных и резервные копии ------------------------------------
+data/
+*.db
+*.sqlite
+*.sqlite3
+backups/
+*.dump
+*.sql.gz
+
+# --- Python -----------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.Python
+.pylibs/
+.tmp/
+
+# --- Инструменты качества --------------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.hypothesis/
+
+# --- Редакторы и ОС ---------------------------------------------------
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Логи и временные файлы -------------------------------------------
+*.log
+logs/
+tmp/
+*.tmp
+~$*
+
+# --- Вспомогательные материалы (рабочие черновики автора) -------------
+_work/

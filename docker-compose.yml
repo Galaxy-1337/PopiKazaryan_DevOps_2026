@@ -1,0 +1,52 @@
+# =====================================================================
+#  Контейнерное окружение проекта «Конференция»: приложение + PostgreSQL
+#  Запуск:  make up      (или: docker compose up --build -d)
+#  Стоп:    make down
+# =====================================================================
+name: conference
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: conference-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-conference}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-conference}
+      POSTGRES_DB: ${POSTGRES_DB:-conference}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-conference} -d ${POSTGRES_DB:-conference}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: conference-app
+    environment:
+      APP_NAME: Конференция
+      APP_ENV: docker
+      APP_DEBUG: "false"
+      APP_HOST: 0.0.0.0
+      APP_PORT: "8000"
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-conference}:${POSTGRES_PASSWORD:-conference}@db:5432/${POSTGRES_DB:-conference}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@conference.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-ChangeMe_12345}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+      SECTION_CAPACITY: ${SECTION_CAPACITY:-3}
+      HOTEL_CONFIRMATION_HOURS: ${HOTEL_CONFIRMATION_HOURS:-48}
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  db-data:

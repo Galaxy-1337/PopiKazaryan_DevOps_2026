@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Конференция — учёт участников</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">К</span>
+    <div>
+      <strong>Конференция</strong>
+      <small>учёт участников, заявок, оргвзносов, тезисов и гостиницы</small>
+    </div>
+  </div>
+  <nav class="nav">
+    <button class="tab is-active" data-tab="dashboard">Сводка</button>
+    <button class="tab" data-tab="applications">Заявки</button>
+    <button class="tab" data-tab="finance">Оргвзносы</button>
+    <button class="tab" data-tab="invitations">Приглашения</button>
+    <button class="tab" data-tab="hotel">Гостиница</button>
+    <button class="tab" data-tab="theses">Тезисы</button>
+  </nav>
+  <div class="status" id="health">проверка…</div>
+</header>
+
+<main>
+  <div class="toast" id="toast" hidden></div>
+
+  <!-- СВОДКА -->
+  <section class="panel is-active" id="panel-dashboard">
+    <h2>Сводка по конференции</h2>
+    <div class="row">
+      <label>Конференция
+        <select id="report-conference"></select>
+      </label>
+      <button class="primary" id="report-refresh">Обновить</button>
+    </div>
+    <div class="cards" id="report-cards"></div>
+    <h3>Распределение по статусам</h3>
+    <div class="grid2" id="report-breakdown"></div>
+  </section>
+
+  <!-- ЗАЯВКИ -->
+  <section class="panel" id="panel-applications">
+    <h2>Заявки на участие</h2>
+    <div class="row">
+      <label>Статус
+        <select id="app-status-filter">
+          <option value="">все</option>
+          <option value="draft">черновик</option>
+          <option value="submitted">подана</option>
+          <option value="accepted">принята</option>
+          <option value="rejected">отклонена</option>
+          <option value="withdrawn">отозвана</option>
+        </select>
+      </label>
+      <button class="primary" id="apps-refresh">Обновить</button>
+      <button id="app-create-toggle">Новая заявка</button>
+    </div>
+
+    <form class="card-form" id="app-create-form" hidden>
+      <h3>Новая заявка</h3>
+      <div class="grid2">
+        <label>Секция <select id="app-section" required></select></label>
+        <label>Участник <select id="app-participant" required></select></label>
+        <label>Тема <input id="app-topic" maxlength="300" required placeholder="Тема доклада"></label>
+        <label>Формат
+          <select id="app-format">
+            <option value="offline">очный</option>
+            <option value="online">дистанционный</option>
+            <option value="poster">стендовый</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="app-hotel"> нужна гостиница</label>
+      </div>
+      <label>Аннотация <textarea id="app-annotation" rows="3"></textarea></label>
+      <button class="primary" type="submit">Создать черновик</button>
+    </form>
+
+    <table class="data">
+      <thead>
+      <tr>
+        <th>ID</th><th>Тема</th><th>Участник</th><th>Секция</th>
+        <th>Формат</th><th>Статус</th><th>Гостиница</th><th>Действия</th>
+      </tr>
+      </thead>
+      <tbody id="apps-body"></tbody>
+    </table>
+  </section>
+
+  <!-- ОРГВЗНОСЫ -->
+  <section class="panel" id="panel-finance">
+    <h2>Оргвзносы</h2>
+    <div class="row">
+      <label>Статус
+        <select id="fee-status-filter">
+          <option value="">все</option>
+          <option value="pending">начислен</option>
+          <option value="paid">оплачен</option>
+          <option value="refunded">возвращён</option>
+          <option value="cancelled">отменён</option>
+        </select>
+      </label>
+      <button class="primary" id="fees-refresh">Обновить</button>
+    </div>
+    <table class="data">
+      <thead>
+      <tr><th>ID</th><th>Заявка</th><th>Сумма</th><th>Валюта</th><th>Статус</th><th>Платёж</th><th>Действия</th></tr>
+      </thead>
+      <tbody id="fees-body"></tbody>
+    </table>
+  </section>
+
+  <!-- ПРИГЛАШЕНИЯ -->
+  <section class="panel" id="panel-invitations">
+    <h2>Очередь рассылки приглашений</h2>
+    <div class="row">
+      <label>Статус
+        <select id="inv-status-filter">
+          <option value="">все</option>
+          <option value="queued">в очереди</option>
+          <option value="sent">отправлено</option>
+          <option value="failed">ошибка</option>
+        </select>
+      </label>
+      <button class="primary" id="inv-refresh">Обновить</button>
+    </div>
+    <table class="data">
+      <thead>
+      <tr><th>ID</th><th>Заявка</th><th>Тема письма</th><th>Статус</th><th>Попыток</th><th>Действия</th></tr>
+      </thead>
+      <tbody id="inv-body"></tbody>
+    </table>
+  </section>
+
+  <!-- ГОСТИНИЦА -->
+  <section class="panel" id="panel-hotel">
+    <h2>Потребность в гостинице</h2>
+    <div class="row">
+      <label>Статус
+        <select id="hotel-status-filter">
+          <option value="">все</option>
+          <option value="requested">запрошена</option>
+          <option value="confirmed">подтверждена</option>
+          <option value="expired">истекла</option>
+          <option value="cancelled">отменена</option>
+        </select>
+      </label>
+      <button class="primary" id="hotel-refresh">Обновить</button>
+    </div>
+    <table class="data">
+      <thead>
+      <tr><th>ID</th><th>Заявка</th><th>Гостиница</th><th>Заезд</th><th>Выезд</th>
+        <th>Ночей</th><th>Гостей</th><th>Статус</th><th>Действия</th></tr>
+      </thead>
+      <tbody id="hotel-body"></tbody>
+    </table>
+  </section>
+
+  <!-- ТЕЗИСЫ -->
+  <section class="panel" id="panel-theses">
+    <h2>Тезисы докладов</h2>
+    <div class="row">
+      <button class="primary" id="theses-refresh">Обновить</button>
+    </div>
+    <table class="data">
+      <thead>
+      <tr><th>ID</th><th>Заявка</th><th>Название</th><th>Статус</th><th>Рецензент</th><th>Оценка</th><th>Действия</th></tr>
+      </thead>
+      <tbody id="theses-body"></tbody>
+    </table>
+  </section>
+</main>
+
+<footer class="footer">
+  <span>Версия {{ version }}</span>
+  <a href="/docs" target="_blank" rel="noopener">Swagger UI</a>
+  <a href="/redoc" target="_blank" rel="noopener">ReDoc</a>
+  <a href="/health" target="_blank" rel="noopener">/health</a>
+  <a href="/openapi.json" target="_blank" rel="noopener">openapi.json</a>
+</footer>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>

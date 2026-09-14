@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "conference"
+version = "0.1.0"
+description = "Учёт участников конференции, приглашений, заявок, оргвзносов, тезисов и потребности в гостинице"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Попиков И.А., Казарян М.А." }]
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.30,<1.0",
+    "SQLAlchemy>=2.0,<3.0",
+    "pydantic>=2.7,<3.0",
+    "pydantic-settings>=2.3,<3.0",
+    "email-validator>=2.1,<3.0",
+    "Jinja2>=3.1,<4.0",
+    "python-multipart>=0.0.9",
+    "psycopg2-binary>=2.9,<3.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.2,<9.0", "httpx>=0.27,<1.0", "ruff>=0.6,<1.0"]
+
+[tool.setuptools]
+packages = ["app", "app.routers", "scripts"]
+
+# ---------------------------------------------------------------------
+# Автоматические тесты
+# ---------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+# ---------------------------------------------------------------------
+# Статический анализ и форматирование
+# ---------------------------------------------------------------------
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+exclude = [".venv", ".pylibs", ".tmp", "data", "backups", "_work", "docs/_work"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "C4", "SIM", "S", "ANN"]
+ignore = [
+    "ANN201",  # возвращаемый тип у публичных функций FastAPI выводится из response_model
+    "ANN001",  # аннотации аргументов зависимостей FastAPI
+    "ANN202",  # аннотации внутренних функций
+    "S101",    # assert используется в тестах
+    "B008",    # Depends() в значениях по умолчанию — идиома FastAPI
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S105", "S106", "ANN", "S311"]
+"app/seed.py" = ["ANN001", "ANN202", "PLC0415"]
+"scripts/*" = ["S603", "S607", "ANN"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
