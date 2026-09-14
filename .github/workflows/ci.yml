@@ -78,9 +78,36 @@ jobs:
       - name: Запуск контейнера
         run: |
           docker run -d --name conference-ci \
-            -e DATABASE_URL=sqlite+pysqlite:///./data/conference.db \
+            -e DATABASE_URL=sqlite+pysqlite:////app/data/conference.db \
             -e SEED_DEMO_DATA=true \
             -p 8000:8000 conference:${{ github.sha }}
+
+      - name: Ожидание готовности приложения
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health; then
+              echo "приложение готово (попытка $i)"
+              exit 0
+            fi
+            echo "попытка $i: сервис недоступен, ждём 2 с"
+            sleep 2
+          done
+          echo "::error::Приложение не ответило на /health за 60 секунд"
+          exit 1
+
+      - name: Диагностика контейнера при ошибке
+        if: failure()
+        run: |
+          echo "=== docker ps -a ==="
+          docker ps -a
+          echo "=== docker inspect (state) ==="
+          docker inspect --format '{{.State.Status}} exit={{.State.ExitCode}} health={{.State.Health.Status}}' conference-ci || true
+          echo "=== процессы внутри контейнера ==="
+          docker top conference-ci || true
+          echo "=== docker logs conference-ci ==="
+          docker logs conference-ci || true
+          echo "=== проверка /health изнутри контейнера ==="
+          docker exec conference-ci curl -fsS http://127.0.0.1:8000/health || true
 
       - name: Проверка /health внутри контейнера
         run: python -m scripts.container_check
