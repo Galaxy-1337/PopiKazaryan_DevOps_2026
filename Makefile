@@ -51,7 +51,6 @@ lint: ## Статический анализ (ruff check)
 format: ## Автоматическое форматирование кода
 	$(PY) -m ruff format .
 	$(PY) -m ruff check --fix .
-
 migrate: ## Применение миграций / создание схемы БД
 	$(PY) -m scripts.migrate
 
