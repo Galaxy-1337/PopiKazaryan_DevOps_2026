@@ -67,7 +67,11 @@ STATUS_TITLES: dict[ApplicationStatus, str] = {
 ACTIVE_SECTION_STATUSES = (ApplicationStatus.SUBMITTED, ApplicationStatus.ACCEPTED)
 
 # Вместимость секции по умолчанию, если значение не задано в конференции.
-DEFAULT_SECTION_CAPACITY = 4
+# При слиянии двух веток выбрано значение 5 (ветка feature/3-section-capacity),
+# при этом сохранены ограничения из обеих веток.
+DEFAULT_SECTION_CAPACITY = 5
+# Минимальная вместимость секции: меньше одного места она иметь не может.
+MIN_SECTION_CAPACITY = 1
 # Максимальная вместимость секции, которую допускает интерфейс организатора.
 MAX_SECTION_CAPACITY = 100
 
