@@ -230,36 +230,41 @@ git log --oneline --graph --decorate -12
 
 ## Шаг 7. Моделирование и разрешение конфликта слияния
 
-Конфликт создаётся намеренно: две ветки меняют одну и ту же строку одного и того же файла.
-Ниже приведён **тот сценарий, который уже выполнен в этом репозитории** — конфликт в файле
-`.env.example` (строка `SECTION_CAPACITY`).
+Конфликт создаётся намеренно: две ветки добавляют разные строки **в одно и то же место одного
+файла**. Ниже приведён тот сценарий, который уже выполнен в этом репозитории: ветки
+`feature/2-teams-section` и `feature/3-section-capacity` правили константы в
+`app/services.py`.
 
 ### 7.1 Создать конфликт
 
 ```powershell
-# Ветка A: 5 мест в секции
+# Ветка A: значение по умолчанию 4 и верхняя граница
 git switch main
-git switch -c chore/2-capacity-a
-# в .env.example ставим SECTION_CAPACITY=5
-git add .env.example
-git commit -m "chore(config): поднять вместимость секции до 5 мест"
-git push -u origin chore/2-capacity-a
+git switch -c feature/2-teams-section
+# в app/services.py добавляем после ACTIVE_SECTION_STATUSES:
+#   DEFAULT_SECTION_CAPACITY = 4
+#   MAX_SECTION_CAPACITY = 100
+git add app/services.py
+git commit -m "feat(sections): задать вместимость секции по умолчанию и предел вместимости"
+git push -u origin feature/2-teams-section
 ```
 
-Не сливая ветку A, создать ветку B от `main`, которая меняет **ту же строку** иначе:
+Не сливая ветку A, создать ветку B от `main`, которая правит **то же место** иначе:
 
 ```powershell
 git switch main
-git switch -c chore/3-capacity-b
-# в .env.example ставим SECTION_CAPACITY=4
-git add .env.example
-git commit -m "chore(config): увеличить вместимость секции до 4 мест"
-git push -u origin chore/3-capacity-b
+git switch -c feature/3-section-capacity
+# в app/services.py добавляем после ACTIVE_SECTION_STATUSES:
+#   DEFAULT_SECTION_CAPACITY = 5
+#   MIN_SECTION_CAPACITY = 1
+git add app/services.py
+git commit -m "feat(sections): поднять вместимость секции по умолчанию и задать минимум"
+git push -u origin feature/3-section-capacity
 ```
 
 ### 7.2 Слить первую ветку
 
-Создать и слить PR из `chore/2-capacity-a` в `main` (шаг 6). После слияния:
+Создать и слить PR из `feature/2-teams-section` в `main` (шаг 6). После слияния:
 
 ```powershell
 git switch main
@@ -270,7 +275,7 @@ git pull --ff-only
 локально:
 
 ```powershell
-git merge --no-ff -m "merge: влить chore/2-capacity-a (вместимость 5 мест)" chore/2-capacity-a
+git merge --no-ff -m "merge: влить feature/2-teams-section (вместимость секции по умолчанию)" feature/2-teams-section
 ```
 
 ### 7.3 Получить конфликт
@@ -278,14 +283,14 @@ git merge --no-ff -m "merge: влить chore/2-capacity-a (вместимост
 Слить вторую ветку в `main` — Git сообщит о конфликте:
 
 ```powershell
-git merge --no-ff chore/3-capacity-b
+git merge --no-ff feature/3-section-capacity
 ```
 
 Ожидаемый вывод:
 
 ```
-Auto-merging .env.example
-CONFLICT (content): Merge conflict in .env.example
+Auto-merging app/services.py
+CONFLICT (content): Merge conflict in app/services.py
 Automatic merge failed; fix conflicts and then commit the result.
 ```
 
@@ -298,27 +303,45 @@ git status
 ```
 Unmerged paths:
   (use "git add <file>..." to mark resolution)
-        both modified:   .env.example
+        both modified:   app/services.py
 ```
 
 ### 7.4 Разрешить конфликт
 
-Открыть файл в VS Code. Git вставил маркеры:
+Открыть файл в VS Code. Git вставил маркеры прямо в то место, куда обе ветки добавляли строки:
 
 ```text
-# Максимальное число участников в одной секции
+ACTIVE_SECTION_STATUSES = (ApplicationStatus.SUBMITTED, ApplicationStatus.ACCEPTED)
+
+# Вместимость секции по умолчанию, если значение не задано в конференции.
 <<<<<<< HEAD
-SECTION_CAPACITY=5
+DEFAULT_SECTION_CAPACITY = 4
+# Максимальная вместимость секции, которую допускает интерфейс организатора.
+MAX_SECTION_CAPACITY = 100
 =======
-SECTION_CAPACITY=4
->>>>>>> chore/3-capacity-b
+DEFAULT_SECTION_CAPACITY = 5
+# Минимальная вместимость секции: меньше одного места она иметь не может.
+MIN_SECTION_CAPACITY = 1
+>>>>>>> feature/3-section-capacity
 ```
 
 Порядок разрешения:
 
-1. Понять, какое значение верное (в нашем случае — вместимость `5` мест).
-2. Удалить маркеры `<<<<<<<`, `=======`, `>>>>>>>` и лишний вариант — оставить одну строку.
-3. Проверить, что не потерялись изменения обеих сторон, которые должны сохраниться.
+1. Понять, какое значение верное. Для значения по умолчанию принимается `5` из ветки
+   `feature/3-section-capacity`, но **изменения обеих веток должны сохраниться**: ограничения
+   `MIN_SECTION_CAPACITY = 1` и `MAX_SECTION_CAPACITY = 100` не конфликтуют между собой.
+2. Удалить маркеры `<<<<<<<`, `=======`, `>>>>>>>` и оставить согласованный вариант:
+
+```text
+# Вместимость секции по умолчанию, если значение не задано в конференции.
+DEFAULT_SECTION_CAPACITY = 5
+# Минимальная вместимость секции: меньше одного места она иметь не может.
+MIN_SECTION_CAPACITY = 1
+# Максимальная вместимость секции, которую допускает интерфейс организатора.
+MAX_SECTION_CAPACITY = 100
+```
+
+3. Проверить, что не потерялись изменения обеих сторон.
 4. Проверить, что конфликтов не осталось:
 
 ```powershell
@@ -335,7 +358,7 @@ Select-String -Path . -Pattern '^(<<<<<<<|=======|>>>>>>>)' -Recurse -ErrorActio
 6. Зафиксировать результат слияния:
 
 ```powershell
-git add .env.example
+git add app/services.py
 git commit -m "merge: разрешить конфликт вместимости секции (оставлено 5 мест)"
 git push
 ```
@@ -344,7 +367,8 @@ git push
 
 VS Code показывает конфликтные файлы в панели **Source Control**. Для каждой группы маркеров
 доступны действия **Accept Current Change**, **Accept Incoming Change**, **Accept Both
-Changes**, **Compare Changes**. После выбора — «+» напротив файла (аналог `git add`) и коммит.
+Changes**, **Compare Changes**. Для этого конфликта удобнее всего **Accept Both Changes**, а
+затем поправить значение по умолчанию вручную.
 
 ### 7.6 Альтернатива: полностью отказаться от слияния
 
