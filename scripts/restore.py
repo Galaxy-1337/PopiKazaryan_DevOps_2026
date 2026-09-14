@@ -1,6 +1,9 @@
-"""Восстановление базы данных из резервной копии.
+"""Restore the database from a backup.
 
-Запуск:
+Console output is ASCII-only: Windows consoles decode program output using the
+system code page, so non-ASCII text would be displayed as garbage.
+
+Run:
     python -m scripts.restore backups/conference-20260101-120000.db
     python -m scripts.restore --list
 """
@@ -19,15 +22,15 @@ BACKUP_DIR = Path("backups")
 
 def list_backups() -> int:
     if not BACKUP_DIR.exists():
-        print("Каталог backups/ отсутствует — резервных копий нет")
+        print("Directory backups/ does not exist - no backups found")
         return 0
     files = sorted(BACKUP_DIR.iterdir())
     if not files:
-        print("Резервных копий нет")
+        print("No backups found")
         return 0
-    print("Доступные резервные копии:")
+    print("Available backups:")
     for item in files:
-        print(f"  {item}  ({item.stat().st_size / 1024:.1f} КБ)")
+        print(f"  {item}  ({item.stat().st_size / 1024:.1f} KB)")
     return 0
 
 
@@ -35,14 +38,14 @@ def restore_sqlite(archive: Path) -> None:
     settings = get_settings()
     target = Path(settings.database_url.split("///", 1)[-1])
     if not archive.exists():
-        raise FileNotFoundError(f"Копия не найдена: {archive}")
+        raise FileNotFoundError(f"Backup not found: {archive}")
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         safety = target.with_suffix(target.suffix + ".before-restore")
         shutil.copy2(target, safety)
-        print(f"Текущая база сохранена как {safety}")
+        print(f"Current database saved as {safety}")
     shutil.copy2(archive, target)
-    print(f"База восстановлена из {archive} → {target}")
+    print(f"Database restored from {archive} -> {target}")
 
 
 def restore_postgres(archive: Path) -> None:
@@ -68,8 +71,8 @@ def restore_postgres(archive: Path) -> None:
     ]
     result = subprocess.run(command, env={"PGPASSWORD": password}, check=False)  # noqa: S603
     if result.returncode != 0:
-        raise RuntimeError("psql завершился с ошибкой")
-    print(f"База восстановлена из {archive}")
+        raise RuntimeError("psql failed")
+    print(f"Database restored from {archive}")
 
 
 def main(argv: list[str]) -> int:

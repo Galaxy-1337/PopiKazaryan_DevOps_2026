@@ -1,6 +1,9 @@
-"""Проверка контейнерного окружения: доступность /health и версия образа.
+"""Container check: verify /health of a running container.
 
-Запуск (после ``make up``):
+Console output is ASCII-only: Windows consoles decode program output using the
+system code page, so non-ASCII text would be displayed as garbage.
+
+Run (after ``make up``):
     python -m scripts.container_check
 """
 
@@ -30,10 +33,10 @@ def main() -> int:
             last_error = f"status={payload.get('status')} database={payload.get('database')}"
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
             last_error = str(exc)
-        print(f"попытка {attempt}/{ATTEMPTS}: {last_error}")
+        print(f"attempt {attempt}/{ATTEMPTS}: {last_error}")
         time.sleep(2)
 
-    print(f"ОШИБКА: сервис недоступен по адресу {url}: {last_error}")
+    print(f"FAIL: service is not available at {url}: {last_error}")
     return 1
 
 

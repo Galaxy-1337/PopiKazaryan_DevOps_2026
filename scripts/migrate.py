@@ -1,10 +1,13 @@
-"""Применение миграций (создание/обновление схемы базы данных).
+"""Apply migrations (create or update the database schema).
 
-Проект использует SQLAlchemy Core-метаданные: ``create_all`` создаёт недостающие
-таблицы и индексы, не затрагивая существующие данные. Для промышленной
-эксплуатации предусмотрено подключение Alembic (см. README, раздел «Развитие»).
+The project relies on SQLAlchemy metadata: ``create_all`` creates missing tables
+and indexes without touching existing data. For production use, connect Alembic
+(see README, section "Development").
 
-Запуск:
+Console output is ASCII-only: Windows consoles decode program output using the
+system code page, so non-ASCII text would be displayed as garbage.
+
+Run:
     python -m scripts.migrate
 """
 
@@ -24,7 +27,7 @@ logger = logging.getLogger("migrate")
 
 def main() -> int:
     settings = get_settings()
-    logger.info("Применение схемы к БД: %s", settings.safe_database_url)
+    logger.info("Applying schema to database: %s", settings.safe_database_url)
 
     inspector = inspect(engine)
     before = set(inspector.get_table_names())
@@ -36,10 +39,10 @@ def main() -> int:
 
     created = sorted(after - before)
     if created:
-        logger.info("Созданы таблицы: %s", ", ".join(created))
+        logger.info("Created tables: %s", ", ".join(created))
     else:
-        logger.info("Схема уже актуальна, изменений нет")
-    logger.info("Всего таблиц: %s — %s", len(after), ", ".join(sorted(after)))
+        logger.info("Schema is up to date, nothing to change")
+    logger.info("Total tables: %s - %s", len(after), ", ".join(sorted(after)))
     return 0
 
 

@@ -1,18 +1,21 @@
-"""Создание резервной копии базы данных.
+"""Create a database backup.
 
-* SQLite — копирование файла базы и снятие логического дампа схемы.
-* PostgreSQL — вызов ``pg_dump`` (plain SQL).
+* SQLite - the database file is copied.
+* PostgreSQL - ``pg_dump`` is called (plain SQL).
 
-Копии складываются в каталог ``backups/`` (исключён из репозитория).
+Backups are stored in the ``backups/`` directory, which is excluded from Git.
 
-Запуск:
+Console output is ASCII-only: Windows consoles decode program output using the
+system code page, so non-ASCII text would be displayed as garbage.
+
+Run:
     python -m scripts.backup
 """
 
 from __future__ import annotations
 
 import shutil
-import subprocess  # noqa: S404 — вызов pg_dump предусмотрен сценарием
+import subprocess  # noqa: S404 - pg_dump invocation is intentional
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -30,7 +33,7 @@ def backup_sqlite() -> Path:
     settings = get_settings()
     source = Path(settings.database_url.split("///", 1)[-1])
     if not source.exists():
-        raise FileNotFoundError(f"Файл базы данных не найден: {source}")
+        raise FileNotFoundError(f"Database file not found: {source}")
 
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     target = BACKUP_DIR / f"conference-{_timestamp()}.db"
@@ -43,8 +46,8 @@ def backup_postgres() -> Path:
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     target = BACKUP_DIR / f"conference-{_timestamp()}.sql"
 
-    url = settings.database_url
     # postgresql+psycopg2://user:password@host:port/dbname
+    url = settings.database_url
     credentials, hostpart = url.split("://", 1)[1].split("@", 1)
     user, _, password = credentials.partition(":")
     hostport, _, dbname = hostpart.partition("/")
@@ -65,10 +68,9 @@ def backup_postgres() -> Path:
         "-f",
         str(target),
     ]
-    env = {"PGPASSWORD": password}
-    result = subprocess.run(command, env={**env}, check=False)  # noqa: S603
+    result = subprocess.run(command, env={"PGPASSWORD": password}, check=False)  # noqa: S603
     if result.returncode != 0:
-        raise RuntimeError("pg_dump завершился с ошибкой")
+        raise RuntimeError("pg_dump failed")
     return target
 
 
@@ -76,7 +78,7 @@ def main() -> int:
     settings = get_settings()
     target = backup_sqlite() if settings.is_sqlite else backup_postgres()
     size_kb = target.stat().st_size / 1024
-    print(f"Резервная копия создана: {target} ({size_kb:.1f} КБ)")
+    print(f"Backup created: {target} ({size_kb:.1f} KB)")
     return 0
 
 

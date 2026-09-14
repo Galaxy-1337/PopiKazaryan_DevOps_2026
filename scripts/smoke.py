@@ -1,9 +1,12 @@
-"""Дымовая проверка приложения: запускает сервер и проверяет ключевые эндпоинты.
+"""Smoke check: start the application and verify key endpoints.
 
-Используется в ``make verify`` и в CI, чтобы убедиться, что приложение
-действительно поднимается и отвечает, а не только проходит модульные тесты.
+Used by ``make verify`` and by CI to make sure the application actually starts
+and answers requests, not only passes unit tests.
 
-Запуск:
+Console output is ASCII-only: Windows consoles decode program output using the
+system code page, so non-ASCII text would be displayed as garbage.
+
+Run:
     python -m scripts.smoke
 """
 
@@ -41,7 +44,7 @@ def _wait_until_ready(timeout: float = 40.0) -> bool:
 
 def main() -> int:
     if not _free_port(PORT):
-        print(f"Порт {PORT} занят — пропускаю дымовую проверку")
+        print(f"Port {PORT} is busy - skipping the smoke check")
         return 0
 
     process = subprocess.Popen(  # noqa: S603
@@ -64,7 +67,7 @@ def main() -> int:
     failures: list[str] = []
     try:
         if not _wait_until_ready():
-            print("ОШИБКА: приложение не поднялось за отведённое время")
+            print("FAIL: the application did not start within the time limit")
             return 1
 
         for endpoint in ENDPOINTS:
@@ -86,9 +89,9 @@ def main() -> int:
             process.kill()
 
     if failures:
-        print(f"Дымовая проверка не пройдена: {', '.join(failures)}")
+        print(f"Smoke check failed: {', '.join(failures)}")
         return 1
-    print("Дымовая проверка пройдена")
+    print("Smoke check passed")
     return 0
 
 
