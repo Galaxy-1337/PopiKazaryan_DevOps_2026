@@ -540,7 +540,6 @@ curl -s http://127.0.0.1:8000/api/v1/reports/conference/1
 ```
 
 ### `GET /api/v1/reports/invitations-queue` — очередь рассылки
-
 Параметр `limit` (по умолчанию 100). Возвращает неотправленные приглашения (`queued` и
 `failed`) — готовый список для рассылки:
 
@@ -559,6 +558,40 @@ curl -s http://127.0.0.1:8000/api/v1/reports/conference/1
   "total": 1
 }
 ```
+
+### `GET /api/v1/reports/mailing-list/{conference_id}` — список рассылки по организациям
+
+Возвращает участников **принятых** заявок, сгруппированных по организациям. Отчёт нужен для
+централизованной рассылки: оргкомитет направляет письмо в организацию, а не каждому участнику
+отдельно.
+
+```bash
+curl -s http://127.0.0.1:8000/api/v1/reports/mailing-list/1
+```
+
+```json
+{
+  "conference_id": 1,
+  "organizations_total": 2,
+  "recipients_total": 3,
+  "items": [
+    {
+      "organization": "Московский Политех",
+      "participants": 2,
+      "emails": ["ivanov@example.com", "petrova@example.com"]
+    },
+    {
+      "organization": "НИУ ВШЭ",
+      "participants": 1,
+      "emails": ["sidorov@example.com"]
+    }
+  ]
+}
+```
+
+Правила формирования: учитываются только заявки в статусе `accepted` по указанной
+конференции; неактивные участники исключаются; для участников без организации используется
+группа «Организация не указана».
 
 ---
 
