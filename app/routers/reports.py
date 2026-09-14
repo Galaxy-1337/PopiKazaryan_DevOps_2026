@@ -165,3 +165,52 @@ def invitations_queue(
         for invitation, participant in db.execute(stmt)
     ]
     return schemas_reports.InvitationQueueOut(items=items, total=len(items))
+
+
+@router.get(
+    "/mailing-list/{conference_id}",
+    response_model=schemas_reports.MailingListOut,
+    summary="Список рассылки по организациям",
+    description=(
+        "Возвращает участников принятых заявок, сгруппированных по организациям. "
+        "Отчёт предназначен для централизованной рассылки приглашений: оргкомитет "
+        "направляет письмо в организацию, а не каждому участнику отдельно."
+    ),
+)
+def mailing_list(conference_id: int, db: Session = Depends(get_db)) -> schemas_reports.MailingListOut:
+    conference = db.get(models.Conference, conference_id)
+    if conference is None:
+        raise not_found("Конференция", conference_id)
+
+    stmt = (
+        select(models.Participant)
+        .join(models.Application, models.Application.participant_id == models.Participant.id)
+        .where(
+            models.Application.conference_id == conference_id,
+            models.Application.status == models.ApplicationStatus.ACCEPTED,
+            models.Participant.is_active.is_(True),
+        )
+        .order_by(models.Participant.organization, models.Participant.full_name)
+        .distinct()
+    )
+
+    grouped: dict[str, list[str]] = {}
+    for participant in db.execute(stmt).scalars():
+        organization = (participant.organization or "Организация не указана").strip()
+        grouped.setdefault(organization, []).append(participant.email)
+
+    items = [
+        schemas_reports.MailingListEntry(
+            organization=organization,
+            participants=len(emails),
+            emails=sorted(emails),
+        )
+        for organization, emails in sorted(grouped.items())
+    ]
+
+    return schemas_reports.MailingListOut(
+        conference_id=conference.id,
+        organizations_total=len(items),
+        recipients_total=sum(item.participants for item in items),
+        items=items,
+    )
