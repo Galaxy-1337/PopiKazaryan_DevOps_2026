@@ -121,7 +121,7 @@ git branch --show-current
 make verify
 ```
 
-Команда выполняет `ruff format --check`, `ruff check`, `pytest` (55 тестов) и дымовую проверку
+Команда выполняет `ruff format --check`, `ruff check`, `pytest` (58 тестов) и дымовую проверку
 приложения. **Пока проверка не зелёная — коммитить нельзя.**
 
 ### Ручная проверка в браузере

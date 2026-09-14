@@ -9,6 +9,7 @@ import logging
 from datetime import date, timedelta
 from decimal import Decimal
 
+from pydantic import EmailStr, TypeAdapter
 from sqlalchemy import func, select
 
 from app import models
@@ -18,6 +19,19 @@ from app.database import session_scope
 logger = logging.getLogger("conference.seed")
 
 DEMO_SLUG = "devops-conf-2026"
+
+# Служебные и зарезервированные зоны, которые не проходят проверку формата
+# e-mail: адреса из этих зон нельзя отдавать в API.
+LEGACY_EMAIL_DOMAINS = frozenset({"local", "localhost", "internal", "invalid", "test"})
+
+
+def _is_valid_email(value: str) -> bool:
+    """Проверить адрес тем же валидатором, что используется в схемах API."""
+    try:
+        TypeAdapter(EmailStr).validate_python(value)
+    except Exception:  # noqa: BLE001 - нужен только факт «валиден или нет»
+        return False
+    return True
 
 
 def seed_database() -> None:
@@ -30,13 +44,56 @@ def seed_database() -> None:
 
 
 def _ensure_admin(db) -> None:  # noqa: ANN001
+    """Создать или исправить учётную запись администратора.
+
+    Адрес администратора должен проходить проверку формата e-mail. Если в
+    настройках или в базе остался адрес из служебной зоны (``.local``,
+    ``.internal``, ``.localhost``), он заменяется на корректный: такие адреса
+    не проходят проверку EmailStr, из-за чего выдача списка участников падала
+    бы с ошибкой 500.
+    """
     settings = get_settings()
-    email = settings.admin_email.lower()
-    existing = db.execute(
-        select(models.Participant).where(models.Participant.email == email)
-    ).scalar_one_or_none()
-    if existing is not None:
+    email = settings.admin_email.strip().lower()
+
+    if not _is_valid_email(email):
+        fallback = "admin@example.com"
+        logger.warning(
+            "ADMIN_EMAIL=%s не является допустимым адресом (%s), используется %s",
+            settings.admin_email,
+            "служебная зона",
+            fallback,
+        )
+        email = fallback
+
+    # Все организаторы: ищем записи с адресом, который не пройдёт проверку
+    # формата (например, admin@conference.local), и приводим их к корректному.
+    organizers = list(
+        db.execute(
+            select(models.Participant).where(models.Participant.role == models.ParticipantRole.ORGANIZER)
+        ).scalars()
+    )
+
+    correct_exists = any(participant.email == email for participant in organizers)
+    for participant in organizers:
+        if participant.email == email:
+            continue
+        if not _is_valid_email(participant.email):
+            if correct_exists:
+                # Дубликат администратора со «сломанным» адресом — удаляем.
+                logger.warning("Удалён дубликат администратора с недопустимым адресом %s", participant.email)
+                db.delete(participant)
+                continue
+            logger.info("Исправлен адрес администратора: %s -> %s", participant.email, email)
+            participant.email = email
+            participant.full_name = settings.admin_full_name
+            correct_exists = True
+            continue
+        if participant.email == email:
+            correct_exists = True
+
+    if correct_exists:
         return
+
     db.add(
         models.Participant(
             full_name=settings.admin_full_name,

@@ -148,11 +148,19 @@ class ParticipantUpdate(BaseModel):
 
 
 class ParticipantOut(BaseModel):
+    """Формат ответа по участнику.
+
+    Поле ``email`` намеренно объявлено как обычная строка, а не ``EmailStr``:
+    строгая проверка нужна при приёме данных (см. ``ParticipantCreate``), а на
+    выдаче она привела бы к ошибке 500, если в базе окажется адрес из служебной
+    зоны (например, ``.local``), который сам API никогда не принял бы.
+    """
+
     model_config = ORM
 
     id: int
     full_name: str
-    email: EmailStr
+    email: str
     phone: str | None
     organization: str | None
     position: str | None

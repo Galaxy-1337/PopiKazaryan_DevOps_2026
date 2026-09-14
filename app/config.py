@@ -34,7 +34,10 @@ class Settings(BaseSettings):
     database_url: str = Field(default="sqlite+pysqlite:///./data/conference.db")
 
     # --- Администратор -------------------------------------------------
-    admin_email: str = Field(default="admin@conference.local")
+    # Внимание: адрес должен быть синтаксически корректным. Служебные зоны
+    # (.local, .internal, .localhost) не проходят проверку EmailStr, поэтому
+    # по умолчанию используется домен example.com из RFC 2606.
+    admin_email: str = Field(default="admin@example.com")
     admin_password: str = Field(default="ChangeMe_12345")
     admin_full_name: str = Field(default="Администратор программы")
 

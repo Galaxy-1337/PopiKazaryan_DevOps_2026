@@ -146,21 +146,59 @@ async function loadReport() {
 /* ------------------------------------------------------------------ */
 /* Справочники для формы заявки                                       */
 /* ------------------------------------------------------------------ */
+function fillSelect(elementId, items, labelOf, emptyLabel) {
+  const select = document.getElementById(elementId);
+  if (!items.length) {
+    select.innerHTML = `<option value="">${esc(emptyLabel)}</option>`;
+    select.disabled = true;
+    return false;
+  }
+  select.disabled = false;
+  select.innerHTML = items.map((item) => `<option value="${item.id}">${esc(labelOf(item))}</option>`).join('');
+  return true;
+}
+
 async function loadDictionaries() {
-  if (!state.sections.length) {
-    const data = await api('/sections?limit=200');
-    state.sections = data.items;
-    document.getElementById('app-section').innerHTML = data.items
-      .map((s) => `<option value="${s.id}">${esc(s.title)} (свободно ${s.free_seats})</option>`)
-      .join('');
+  if (!state.conferences.length) {
+    const data = await api('/conferences?limit=200');
+    state.conferences = data.items;
   }
-  if (!state.participants.length) {
-    const data = await api('/participants?limit=200');
-    state.participants = data.items;
-    document.getElementById('app-participant').innerHTML = data.items
-      .map((p) => `<option value="${p.id}">${esc(p.full_name)} — ${esc(p.email)}</option>`)
-      .join('');
+
+  const sections = (await api('/sections?limit=200')).items;
+  const participants = (await api('/participants?limit=200')).items;
+  state.sections = sections;
+  state.participants = participants;
+
+  const hasSections = fillSelect(
+    'app-section',
+    sections,
+    (s) => `${s.title} (свободно ${s.free_seats})`,
+    'Нет секций — создайте конференцию с секциями',
+  );
+  const hasParticipants = fillSelect(
+    'app-participant',
+    participants,
+    (p) => `${p.full_name} — ${p.email}`,
+    'Нет участников — добавьте участника',
+  );
+
+  const note = document.getElementById('dict-warning');
+  if (hasSections && hasParticipants) {
+    note.hidden = true;
+    note.textContent = '';
+    return;
   }
+
+  const missing = [!hasSections ? 'секции' : null, !hasParticipants ? 'участники' : null]
+    .filter(Boolean)
+    .join(' и ');
+  note.hidden = false;
+  note.textContent =
+    `Заявку создать нельзя: в базе нет данных (${missing}). `
+    + `Конференций: ${state.conferences.length}, секций: ${sections.length}, участников: ${participants.length}. `
+    + 'Если база пуста, остановите сервер (Ctrl+C), удалите файл data/conference.db и запустите приложение снова — '
+    + 'демонстрационные данные создадутся автоматически (SEED_DEMO_DATA=true).';
+  toast(`Нет данных для выбора: ${missing}`, true);
 }
 
 async function loadApplications() {
@@ -386,7 +424,12 @@ document.addEventListener('click', async (event) => {
     }
     toast('Операция выполнена');
     const active = document.querySelector('.tab.is-active').dataset.tab;
-    if (active === 'applications') loadApplications();
+    if (active === 'applications') {
+      // Обновляем и таблицу, и справочники: число свободных мест в секциях
+      // меняется при подаче, принятии, отклонении и отзыве заявок.
+      await loadApplications();
+      await loadDictionaries();
+    }
     if (active === 'finance') loadFees();
     if (active === 'invitations') loadInvitations();
     if (active === 'hotel') loadHotel();
@@ -423,7 +466,8 @@ document.getElementById('app-create-form').addEventListener('submit', async (eve
     });
     toast(`Создана заявка №${application.id} (черновик)`);
     event.target.reset();
-    loadApplications();
+    await loadApplications();
+    await loadDictionaries();
   } catch (error) {
     toast(`${error.code}: ${error.message}`, true);
   }
