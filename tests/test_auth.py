@@ -124,6 +124,7 @@ def test_anonymous_cannot_read_any_data(anon_client: TestClient) -> None:
         "/api/v1/theses",
         "/api/v1/hotel-bookings",
         "/api/v1/reports/conference/1",
+        "/api/v1/reports/sections-load/1",
     ]:
         response = anon_client.get(path)
         assert response.status_code == 401, f"{path} доступен без входа: {response.status_code}"
@@ -245,6 +246,7 @@ def test_reviewer_sees_theses_but_cannot_submit_them(
 def test_reviewer_cannot_read_reports(reviewer_client: TestClient) -> None:
     assert reviewer_client.get("/api/v1/reports/conference/1").status_code == 403
     assert reviewer_client.get("/api/v1/reports/invitations-queue").status_code == 403
+    assert reviewer_client.get("/api/v1/reports/sections-load/1").status_code == 403
 
 
 def test_listener_sees_only_own_applications(
