@@ -316,10 +316,3 @@ def test_sections_load_for_unknown_conference(client: TestClient) -> None:
     response = client.get("/api/v1/reports/sections-load/424242")
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "not_found"
-
-
-def test_sections_load_forbidden_for_listener(listener_client: TestClient) -> None:
-    """Участник не видит сводные отчёты — они доступны только организатору."""
-    response = listener_client.get("/api/v1/reports/sections-load/1")
-    assert response.status_code == 403
-    assert response.json()["error"]["code"] == "forbidden"

@@ -3,9 +3,9 @@
 Тесты работают на отдельной тестовой базе SQLite: каждый тест получает
 чистую схему, поэтому тесты не зависят от порядка выполнения.
 
-API защищён аутентификацией, поэтому основная фикстура ``client`` выполняет вход
-под организатором и работает с cookie сессии. Для проверки разграничения доступа
-есть отдельные фикстуры-клиенты по каждой роли.
+API защищён аутентификацией. Учётная запись в системе одна — организатор,
+поэтому основная фикстура ``client`` выполняет вход под ней и работает с cookie
+сессии, а ``anon_client`` используется для проверки защиты маршрутов без входа.
 """
 
 from __future__ import annotations
@@ -37,28 +37,22 @@ from app.main import app as fastapi_app  # noqa: E402
 
 
 def credentials(role: str) -> tuple[str, str]:
-    """Адрес и пароль демонстрационной учётной записи роли.
+    """Адрес и пароль учётной записи.
 
-    Значения берутся из настроек приложения, поэтому тесты не зависят от того,
-    что записано в локальном файле ``.env``: проверяется именно то, что создаёт
-    наполнение базы данных.
+    Учётная запись в системе одна — организатор. Значения берутся из настроек
+    приложения, поэтому тесты не зависят от того, что записано в локальном файле
+    ``.env``: проверяется именно то, что создаёт наполнение базы данных.
     """
     from app.config import get_settings
 
     settings = get_settings()
     accounts = {
         "organizer": (settings.admin_email, settings.effective_admin_password),
-        "listener": ("listener@example.com", settings.demo_password),
-        "speaker": ("speaker@example.com", settings.demo_password),
-        "reviewer": ("reviewer@example.com", settings.demo_password),
     }
     return accounts[role]
 
 
 ORGANIZER = credentials("organizer")
-LISTENER = credentials("listener")
-SPEAKER = credentials("speaker")
-REVIEWER = credentials("reviewer")
 
 
 def _login(client: TestClient, credentials: tuple[str, str]) -> TestClient:
@@ -121,79 +115,9 @@ def anon_client() -> Iterator[TestClient]:
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
-    """Клиент с правами организатора: полный доступ ко всем разделам."""
+    """Клиент организатора: единственная учётная запись, полный доступ."""
     with TestClient(fastapi_app) as test_client:
         yield _login(test_client, ORGANIZER)
-
-
-@pytest.fixture
-def organizer_client() -> Iterator[TestClient]:
-    """Явный клиент организатора — для тестов разграничения доступа."""
-    with TestClient(fastapi_app) as test_client:
-        yield _login(test_client, ORGANIZER)
-
-
-@pytest.fixture
-def listener_client() -> Iterator[TestClient]:
-    """Клиент участника-слушателя: только собственные данные."""
-    with TestClient(fastapi_app) as test_client:
-        yield _login(test_client, LISTENER)
-
-
-@pytest.fixture
-def speaker_client() -> Iterator[TestClient]:
-    """Клиент докладчика: свои заявки и подача тезисов."""
-    with TestClient(fastapi_app) as test_client:
-        yield _login(test_client, SPEAKER)
-
-
-@pytest.fixture
-def reviewer_client() -> Iterator[TestClient]:
-    """Клиент рецензента: тезисы на рецензию."""
-    with TestClient(fastapi_app) as test_client:
-        yield _login(test_client, REVIEWER)
-
-
-@pytest.fixture
-def speaker_participant(db) -> dict:  # noqa: ANN001
-    """Запись участника, связанная с учётной записью докладчика.
-
-    Адрес для входа (speaker@example.com) и адрес участника в реестре — разные
-    поля, поэтому связь берётся из базы данных.
-    """
-    from app import models
-
-    user = (
-        db.query(models.User)
-        .filter(models.User.role == models.ParticipantRole.SPEAKER)
-        .order_by(models.User.id)
-        .first()
-    )
-    assert user is not None and user.participant is not None, "докладчик не связан с участником"
-    return {
-        "id": user.participant.id,
-        "full_name": user.participant.full_name,
-        "email": user.participant.email,
-    }
-
-
-@pytest.fixture
-def listener_participant(db) -> dict:  # noqa: ANN001
-    """Запись участника, связанная с учётной записью слушателя."""
-    from app import models
-
-    user = (
-        db.query(models.User)
-        .filter(models.User.role == models.ParticipantRole.LISTENER)
-        .order_by(models.User.id)
-        .first()
-    )
-    assert user is not None and user.participant is not None, "слушатель не связан с участником"
-    return {
-        "id": user.participant.id,
-        "full_name": user.participant.full_name,
-        "email": user.participant.email,
-    }
 
 
 @pytest.fixture

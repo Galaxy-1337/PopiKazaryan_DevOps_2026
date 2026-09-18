@@ -1,10 +1,14 @@
-"""Тесты аутентификации, ролей и разграничения доступа."""
+"""Тесты аутентификации и доступа к функционалу.
+
+Учётная запись в системе одна — организатор с полным набором прав, поэтому
+проверяется её вход, состав прав и защита маршрутов без сессии.
+"""
 
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from tests.conftest import LISTENER, ORGANIZER, REVIEWER, SPEAKER
+from tests.conftest import ORGANIZER
 
 
 # ---------------------------------------------------------------------------
@@ -84,30 +88,98 @@ def test_password_hash_is_salted(db) -> None:  # noqa: ANN001
     """Одинаковые пароли дают разные хеши — значит используется соль."""
     from app import auth, models
 
-    users = db.query(models.User).filter(models.User.role == models.ParticipantRole.SPEAKER).all()
-    organizer = db.query(models.User).filter(models.User.role == models.ParticipantRole.ORGANIZER).one()
+    users = db.query(models.User).all()
+    assert len(users) == 1, "в системе должна быть ровно одна учётная запись"
+    assert users[0].role == models.ParticipantRole.ORGANIZER
     assert auth.hash_password("одинаковый") != auth.hash_password("одинаковый")
-    assert users and organizer  # фикстура наполнения создала учётные записи
 
 
 # ---------------------------------------------------------------------------
-# Справочник ролей и прав
+# Справочник учётных записей и прав
 # ---------------------------------------------------------------------------
 def test_roles_endpoint_describes_permissions(anon_client: TestClient) -> None:
-    """Справочник ролей показывает, что доступно каждой роли."""
+    """Справочник показывает полный набор прав единственной учётной записи."""
     response = anon_client.get("/api/v1/auth/roles")
     assert response.status_code == 200
     roles = {item["role"]: item for item in response.json()}
 
-    assert set(roles) == {"organizer", "listener", "speaker", "reviewer"}
-    assert "application:decide" in roles["organizer"]["permissions"]
-    assert "report:read" in roles["organizer"]["permissions"]
-    assert "application:create" in roles["listener"]["permissions"]
-    assert "thesis:submit_own" in roles["speaker"]["permissions"]
-    assert "thesis:review" in roles["reviewer"]["permissions"]
-    # У рецензента нет права принимать решения по заявкам и управлять взносами
-    assert "application:decide" not in roles["reviewer"]["permissions"]
-    assert "fee:manage" not in roles["reviewer"]["permissions"]
+    assert set(roles) == {"organizer"}
+    assert roles["organizer"]["title"] == "Организатор"
+    permissions = roles["organizer"]["permissions"]
+    for permission in (
+        "conference:manage",
+        "section:manage",
+        "participant:manage",
+        "application:decide",
+        "fee:manage",
+        "invitation:manage",
+        "hotel:manage",
+        "thesis:review",
+        "report:read",
+        "user:manage",
+    ):
+        assert permission in permissions, f"у организатора нет права {permission}"
+
+
+# ---------------------------------------------------------------------------
+# Механизм прав доступа
+# ---------------------------------------------------------------------------
+def test_account_without_permissions_gets_forbidden(anon_client: TestClient, db) -> None:  # noqa: ANN001
+    """Учётная запись без нужного права получает 403, а не данные.
+
+    В системе есть только организатор, поэтому проверяется сам механизм прав:
+    учётная запись без прав создаётся прямо в базе данных теста и удаляется
+    вместе с тестовой схемой.
+    """
+    from app import auth, models
+
+    user = auth.create_user(
+        db,
+        email="no-permissions@example.com",
+        password="Conference2026",
+        role=models.ParticipantRole.LISTENER,
+        full_name="Учётная запись без прав",
+    )
+    db.add(user)
+    db.commit()
+
+    login = anon_client.post(
+        "/api/v1/auth/login",
+        json={"email": "no-permissions@example.com", "password": "Conference2026"},
+    )
+    assert login.status_code == 200
+    assert login.json()["role"] == "listener"
+
+    response = anon_client.get("/api/v1/reports/conference/1")
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "forbidden"
+
+
+def test_seeding_removes_accounts_other_than_organizer(db) -> None:  # noqa: ANN001
+    """Повторное наполнение убирает лишние учётные записи из существующей базы.
+
+    Так база предыдущей версии приложения приводится к состоянию «одна учётная
+    запись»: остальные удаляются вместе со своими сессиями.
+    """
+    from app import auth, models
+    from app.seed import seed_database
+
+    extra = auth.create_user(
+        db,
+        email="old-role@example.com",
+        password="Conference2026",
+        role=models.ParticipantRole.SPEAKER,
+        full_name="Учётная запись прошлой версии",
+    )
+    db.add(extra)
+    db.commit()
+    assert db.query(models.User).count() == 2
+
+    seed_database()
+
+    users = db.query(models.User).all()
+    assert len(users) == 1
+    assert users[0].role == models.ParticipantRole.ORGANIZER
 
 
 # ---------------------------------------------------------------------------
@@ -150,262 +222,6 @@ def test_health_and_login_stay_public(anon_client: TestClient) -> None:
     assert anon_client.get("/api/v1/auth/roles").status_code == 200
 
 
-# ---------------------------------------------------------------------------
-# Разграничение доступа по ролям
-# ---------------------------------------------------------------------------
-def test_listener_cannot_manage_conferences(listener_client: TestClient) -> None:
-    response = listener_client.post(
-        "/api/v1/conferences",
-        json={
-            "title": "Попытка слушателя",
-            "slug": "listener-conf",
-            "starts_on": "2026-06-01",
-            "ends_on": "2026-06-02",
-        },
-    )
-    assert response.status_code == 403
-    assert response.json()["error"]["code"] == "forbidden"
-
-
-def test_listener_cannot_manage_participants(listener_client: TestClient) -> None:
-    response = listener_client.post(
-        "/api/v1/participants",
-        json={"full_name": "Новый Участник", "email": "new@example.com"},
-    )
-    assert response.status_code == 403
-
-
-def test_listener_cannot_decide_applications(
-    listener_client: TestClient,
-    client: TestClient,
-    conference: dict,
-    sections: list[dict],
-    speaker_participant: dict,
-) -> None:
-    """Участник не может принять решение по заявке — это делает организатор."""
-    speaker = speaker_participant
-    application = client.post(
-        "/api/v1/applications",
-        json={
-            "conference_id": conference["id"],
-            "section_id": sections[0]["id"],
-            "participant_id": speaker["id"],
-            "topic": "Заявка для проверки прав",
-        },
-    ).json()
-    client.post(f"/api/v1/applications/{application['id']}/submit")
-
-    response = listener_client.post(
-        f"/api/v1/applications/{application['id']}/decision", json={"accept": True}
-    )
-    assert response.status_code == 403
-
-
-def test_reviewer_sees_theses_but_cannot_submit_them(
-    reviewer_client: TestClient,
-    client: TestClient,
-    conference: dict,
-    sections: list[dict],
-    speaker_participant: dict,
-) -> None:
-    """Рецензент видит тезисы и оценивает их, но не подаёт свои."""
-    speaker = speaker_participant
-    application = client.post(
-        "/api/v1/applications",
-        json={
-            "conference_id": conference["id"],
-            "section_id": sections[0]["id"],
-            "participant_id": speaker["id"],
-            "topic": "Заявка для рецензента",
-        },
-    ).json()
-    client.post(f"/api/v1/applications/{application['id']}/submit")
-    client.post(f"/api/v1/applications/{application['id']}/decision", json={"accept": True})
-    thesis = client.post(
-        f"/api/v1/applications/{application['id']}/theses",
-        json={"title": "Тезисы для рецензии", "abstract": "а" * 80},
-    ).json()
-
-    # Читать и оценивать может
-    assert reviewer_client.get("/api/v1/theses").status_code == 200
-    review = reviewer_client.post(
-        f"/api/v1/theses/{thesis['id']}/review",
-        json={"reviewer_name": "Рецензент Тестовый", "score": 9, "accepted": True},
-    )
-    assert review.status_code == 200
-    assert review.json()["status"] == "accepted"
-
-    # Подавать тезисы — нет
-    response = reviewer_client.post(
-        f"/api/v1/applications/{application['id']}/theses",
-        json={"title": "Свои тезисы", "abstract": "б" * 80},
-    )
-    assert response.status_code == 403
-
-
-def test_reviewer_cannot_read_reports(reviewer_client: TestClient) -> None:
-    assert reviewer_client.get("/api/v1/reports/conference/1").status_code == 403
-    assert reviewer_client.get("/api/v1/reports/invitations-queue").status_code == 403
-    assert reviewer_client.get("/api/v1/reports/sections-load/1").status_code == 403
-
-
-def test_listener_sees_only_own_applications(
-    listener_client: TestClient,
-    client: TestClient,
-    conference: dict,
-    sections: list[dict],
-    speaker_participant: dict,
-    listener_participant: dict,
-) -> None:
-    """Участник видит только свои заявки, даже если в системе есть другие."""
-    speaker = speaker_participant
-    listener = listener_participant
-
-    for participant, topic in [(speaker, "Заявка докладчика"), (listener, "Заявка слушателя")]:
-        client.post(
-            "/api/v1/applications",
-            json={
-                "conference_id": conference["id"],
-                "section_id": sections[0]["id"],
-                "participant_id": participant["id"],
-                "topic": topic,
-            },
-        )
-
-    organizer_view = client.get("/api/v1/applications").json()
-    listener_view = listener_client.get("/api/v1/applications").json()
-
-    organizer_topics = {item["topic"] for item in organizer_view["items"]}
-    listener_topics = {item["topic"] for item in listener_view["items"]}
-
-    # Организатор видит обе заявки, слушатель — только свою
-    assert {"Заявка докладчика", "Заявка слушателя"} <= organizer_topics
-    assert "Заявка слушателя" in listener_topics
-    assert "Заявка докладчика" not in listener_topics
-    assert {item["participant_id"] for item in listener_view["items"]} == {listener_participant["id"]}
-
-
-def test_listener_cannot_touch_foreign_application(
-    listener_client: TestClient,
-    client: TestClient,
-    conference: dict,
-    sections: list[dict],
-    speaker_participant: dict,
-) -> None:
-    """Чужую заявку нельзя ни прочитать, ни подать, ни отозвать."""
-    speaker = speaker_participant
-    application = client.post(
-        "/api/v1/applications",
-        json={
-            "conference_id": conference["id"],
-            "section_id": sections[0]["id"],
-            "participant_id": speaker["id"],
-            "topic": "Чужая заявка",
-        },
-    ).json()
-
-    assert listener_client.get(f"/api/v1/applications/{application['id']}").status_code == 403
-    assert listener_client.post(f"/api/v1/applications/{application['id']}/submit").status_code == 403
-    assert listener_client.post(f"/api/v1/applications/{application['id']}/withdraw").status_code == 403
-
-
-def test_listener_cannot_create_application_for_someone_else(
-    listener_client: TestClient, conference: dict, sections: list[dict], speaker_participant: dict
-) -> None:
-    response = listener_client.post(
-        "/api/v1/applications",
-        json={
-            "conference_id": conference["id"],
-            "section_id": sections[0]["id"],
-            "participant_id": speaker_participant["id"],
-            "topic": "Заявка от чужого имени",
-        },
-    )
-    assert response.status_code == 403
-    assert response.json()["error"]["code"] == "forbidden_foreign_participant"
-
-
-def test_speaker_can_submit_own_application(
-    speaker_client: TestClient, conference: dict, sections: list[dict], speaker_participant: dict
-) -> None:
-    """Докладчик подаёт заявку от своего имени и видит её в своём списке."""
-    response = speaker_client.post(
-        "/api/v1/applications",
-        json={
-            "conference_id": conference["id"],
-            "section_id": sections[0]["id"],
-            "participant_id": speaker_participant["id"],
-            "topic": "Доклад докладчика",
-        },
-    )
-    assert response.status_code == 201, response.text
-
-    view = speaker_client.get("/api/v1/applications").json()
-    topics = [item["topic"] for item in view["items"]]
-    assert "Доклад докладчика" in topics
-    # Все заявки в списке принадлежат докладчику
-    assert {item["participant_id"] for item in view["items"]} == {speaker_participant["id"]}
-
-
-def test_speaker_cannot_decide_or_refund(
-    speaker_client: TestClient, conference: dict, sections: list[dict], speaker_participant: dict
-) -> None:
-    application = speaker_client.post(
-        "/api/v1/applications",
-        json={
-            "conference_id": conference["id"],
-            "section_id": sections[0]["id"],
-            "participant_id": speaker_participant["id"],
-            "topic": "Заявка докладчика для проверки",
-        },
-    ).json()
-    speaker_client.post(f"/api/v1/applications/{application['id']}/submit")
-
-    # Принять решение докладчик не может
-    assert (
-        speaker_client.post(
-            f"/api/v1/applications/{application['id']}/decision", json={"accept": True}
-        ).status_code
-        == 403
-    )
-    # Начислить взнос тоже
-    assert speaker_client.post("/api/v1/fees", json={"application_id": application["id"]}).status_code == 403
-
-
-def test_listener_cannot_manage_hotel_bookings(
-    listener_client: TestClient,
-    client: TestClient,
-    conference: dict,
-    sections: list[dict],
-    speaker_participant: dict,
-) -> None:
-    """Подтверждать бронь может только организатор."""
-    speaker = speaker_participant
-    application = client.post(
-        "/api/v1/applications",
-        json={
-            "conference_id": conference["id"],
-            "section_id": sections[0]["id"],
-            "participant_id": speaker["id"],
-            "topic": "Заявка с гостиницей",
-        },
-    ).json()
-    client.post(f"/api/v1/applications/{application['id']}/submit")
-    client.post(f"/api/v1/applications/{application['id']}/decision", json={"accept": True})
-    booking = client.post(
-        "/api/v1/hotel-bookings",
-        json={
-            "application_id": application["id"],
-            "hotel_name": "Гостиница «Семёновская»",
-            "check_in": "2026-06-01",
-            "check_out": "2026-06-03",
-        },
-    ).json()
-
-    assert listener_client.post(f"/api/v1/hotel-bookings/{booking['id']}/confirm").status_code == 403
-    assert listener_client.get(f"/api/v1/hotel-bookings/{booking['id']}").status_code == 403
-
-
 def test_web_login_page_is_public_and_root_requires_login(anon_client: TestClient) -> None:
     """Страница входа доступна всем, рабочая страница — только после входа."""
     login_page = anon_client.get("/login", follow_redirects=False)
@@ -421,7 +237,7 @@ def test_web_login_form_authenticates_and_logs_out(anon_client: TestClient) -> N
     """Вход через форму устанавливает cookie, выход — удаляет."""
     response = anon_client.post(
         "/login",
-        data={"email": SPEAKER[0], "password": SPEAKER[1]},
+        data={"email": ORGANIZER[0], "password": ORGANIZER[1]},
         follow_redirects=False,
     )
     assert response.status_code == 303
@@ -429,8 +245,8 @@ def test_web_login_form_authenticates_and_logs_out(anon_client: TestClient) -> N
 
     page = anon_client.get("/")
     assert page.status_code == 200
-    assert "Докладчик" in page.text
-    assert "Мои заявки" in page.text
+    assert "Организатор" in page.text
+    assert "Заявки" in page.text
 
     logout = anon_client.get("/logout", follow_redirects=False)
     assert logout.status_code == 303
@@ -440,33 +256,25 @@ def test_web_login_form_authenticates_and_logs_out(anon_client: TestClient) -> N
 def test_web_login_form_shows_error_on_wrong_password(anon_client: TestClient) -> None:
     response = anon_client.post(
         "/login",
-        data={"email": LISTENER[0], "password": "неверный"},
+        data={"email": ORGANIZER[0], "password": "неверный"},
     )
     assert response.status_code == 401
     assert "Неверный адрес электронной почты или пароль" in response.text
 
 
-def test_interface_shows_only_allowed_sections(anon_client: TestClient) -> None:
-    """В интерфейсе участника нет разделов организатора, и наоборот."""
-    anon_client.post("/login", data={"email": REVIEWER[0], "password": REVIEWER[1]})
-    reviewer_page = anon_client.get("/").text
-    assert 'data-tab="theses"' in reviewer_page
-    assert "Тезисы на рецензию" in reviewer_page
-    assert 'data-tab="participants"' not in reviewer_page
-    assert 'data-tab="finance"' not in reviewer_page
-    assert 'data-tab="invitations"' not in reviewer_page
-    assert "Рецензент" in reviewer_page
-
-    anon_client.get("/logout")
+def test_interface_shows_all_application_sections(anon_client: TestClient) -> None:
+    """Организатор видит все разделы приложения, включая тезисы."""
     anon_client.post("/login", data={"email": ORGANIZER[0], "password": ORGANIZER[1]})
-    organizer_page = anon_client.get("/").text
-    for tab in ("dashboard", "applications", "finance", "invitations", "hotel", "participants"):
-        assert f'data-tab="{tab}"' in organizer_page
-    assert "Организатор" in organizer_page
+    page = anon_client.get("/").text
 
-    anon_client.get("/logout")
-    anon_client.post("/login", data={"email": LISTENER[0], "password": LISTENER[1]})
-    listener_page = anon_client.get("/").text
-    assert "Мои заявки" in listener_page
-    assert 'data-tab="participants"' not in listener_page
-    assert 'data-tab="theses"' not in listener_page
+    for tab in (
+        "dashboard",
+        "applications",
+        "finance",
+        "invitations",
+        "hotel",
+        "theses",
+        "participants",
+    ):
+        assert f'data-tab="{tab}"' in page
+    assert "Организатор" in page
