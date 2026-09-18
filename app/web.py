@@ -22,40 +22,26 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "tem
 
 
 def _tabs_for(user: models.User) -> list[dict[str, str]]:
-    """Разделы интерфейса, доступные роли пользователя."""
+    """Разделы интерфейса, доступные учётной записи.
+
+    В системе одна учётная запись — организатор с правом ``report:read``, поэтому
+    набор разделов полный. Состав всё равно выводится из прав, а не из названия
+    роли: если учётных записей с другим набором прав станет больше, интерфейс
+    подстроится без правок этого модуля.
+    """
     tabs: list[dict[str, str]] = [{"key": "dashboard", "title": "Сводка"}]
 
     if auth.has_permission(user, "report:read"):
-        # Организатор: полный набор разделов.
         tabs.extend(
             [
                 {"key": "applications", "title": "Заявки"},
                 {"key": "finance", "title": "Оргвзносы"},
                 {"key": "invitations", "title": "Приглашения"},
                 {"key": "hotel", "title": "Гостиница"},
+                {"key": "theses", "title": "Тезисы"},
                 {"key": "participants", "title": "Участники"},
             ]
         )
-    elif auth.has_permission(user, "thesis:review"):
-        # Рецензент: работает с тезисами и смотрит заявки для контекста.
-        tabs.extend(
-            [
-                {"key": "theses", "title": "Тезисы на рецензию"},
-                {"key": "applications", "title": "Заявки"},
-            ]
-        )
-    else:
-        # Участник и докладчик: только собственные данные.
-        tabs.extend(
-            [
-                {"key": "applications", "title": "Мои заявки"},
-                {"key": "finance", "title": "Мои оргвзносы"},
-                {"key": "invitations", "title": "Мои приглашения"},
-                {"key": "hotel", "title": "Моя гостиница"},
-            ]
-        )
-        if auth.has_permission(user, "thesis:submit_own"):
-            tabs.append({"key": "theses", "title": "Мои тезисы"})
 
     return tabs
 

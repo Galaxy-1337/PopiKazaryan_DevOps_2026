@@ -5,7 +5,7 @@
 * хеширование и проверку паролей (PBKDF2-HMAC-SHA256 со случайной солью);
 * создание, поиск и завершение сессий;
 * определение текущего пользователя по cookie ``conference_session``;
-* проверку прав доступа по ролям (организатор, участник, докладчик, рецензент).
+* проверку прав доступа учётной записи (организатор — полный набор прав).
 
 Пароли в открытом виде нигде не хранятся и не пишутся в журналы.
 """
@@ -34,9 +34,11 @@ SALT_BYTES = 16
 SESSION_COOKIE = "conference_session"
 SESSION_TTL_HOURS = 12
 
-# --- Права ролей ----------------------------------------------------------
-# Права перечислены явно по каждой роли: так разграничение доступа видно в одном
-# месте, его легко проверить на защите и показать через GET /api/v1/auth/roles.
+# --- Права доступа --------------------------------------------------------
+# В системе одна учётная запись — организатор, и она имеет полный доступ ко
+# всему функционалу приложения. Права перечислены явно: так состав доступа
+# виден в одном месте, его легко проверить на защите и показать через
+# GET /api/v1/auth/roles.
 #
 # Права вида *_own означают работу только со своими данными: сервисный слой
 # дополнительно фильтрует выборки по участнику, связанному с учётной записью.
@@ -61,29 +63,6 @@ PERMISSIONS: dict[models.ParticipantRole, set[str]] = {
         "thesis:review",
         "report:read",
         "user:manage",
-    },
-    models.ParticipantRole.LISTENER: {
-        "application:create",
-        "application:read_own",
-        "fee:read_own",
-        "fee:pay_own",
-        "hotel:request_own",
-        "invitation:read_own",
-    },
-    models.ParticipantRole.SPEAKER: {
-        "application:create",
-        "application:read_own",
-        "fee:read_own",
-        "fee:pay_own",
-        "hotel:request_own",
-        "invitation:read_own",
-        "thesis:submit_own",
-        "thesis:read_own",
-    },
-    models.ParticipantRole.REVIEWER: {
-        "thesis:review",
-        "thesis:read_all",
-        "application:read_all",
     },
 }
 
@@ -113,9 +92,6 @@ PERMISSION_TITLES: dict[str, str] = {
 
 ROLE_TITLES: dict[models.ParticipantRole, str] = {
     models.ParticipantRole.ORGANIZER: "Организатор",
-    models.ParticipantRole.LISTENER: "Участник (слушатель)",
-    models.ParticipantRole.SPEAKER: "Докладчик",
-    models.ParticipantRole.REVIEWER: "Рецензент",
 }
 
 
@@ -348,10 +324,7 @@ def require_permission(permission: str):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={
                     "code": "forbidden",
-                    "message": (
-                        f"Роль «{ROLE_TITLES.get(user.role, user.role)}» не имеет права "
-                        f"на действие «{permission}»"
-                    ),
+                    "message": (f"Учётная запись «{user.email}» не имеет права на действие «{permission}»"),
                 },
             )
         return user
@@ -385,9 +358,7 @@ def require_any_permission(*permissions: str):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={
                     "code": "forbidden",
-                    "message": (
-                        f"Роль «{ROLE_TITLES.get(user.role, user.role)}» не имеет доступа к этому разделу"
-                    ),
+                    "message": (f"Учётная запись «{user.email}» не имеет доступа к этому разделу"),
                 },
             )
         return user
