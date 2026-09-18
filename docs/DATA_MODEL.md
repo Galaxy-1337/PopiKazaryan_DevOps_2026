@@ -1,7 +1,8 @@
 # Схема данных
 
 СУБД: реляционная. Локально — SQLite (`data/conference.db`), в контейнерном окружении —
-PostgreSQL 16. Схема создаётся SQLAlchemy по метаданным (`make migrate`, `app/database.py`).
+PostgreSQL 16. Схема создаётся SQLAlchemy по метаданным (`python -m scripts.migrate`,
+`app/database.py`).
 
 Одиннадцать таблиц: `conferences`, `sections`, `participants`, `applications`, `invitations`,
 `fees`, `theses`, `hotel_bookings`, `audit_log`, а также `users` и `sessions` — учётные записи
@@ -146,12 +147,17 @@ PostgreSQL 16. Схема создаётся SQLAlchemy по метаданны�
 | `id` | INTEGER | PK | идентификатор |
 | `email` | VARCHAR(200) | NOT NULL, UNIQUE, индекс | адрес для входа (в нижнем регистре) |
 | `full_name` | VARCHAR(200) | NOT NULL | ФИО пользователя |
-| `role` | VARCHAR(20) | NOT NULL, индекс, enum | `organizer`, `listener`, `speaker`, `reviewer` |
+| `role` | VARCHAR(20) | NOT NULL, индекс, enum | `organizer`, `listener`, `speaker`, `reviewer`; в системе используется только `organizer` |
 | `password_hash` | VARCHAR(255) | NOT NULL | хеш пароля PBKDF2-HMAC-SHA256, формат `pbkdf2_sha256$итерации$соль$хеш` |
 | `participant_id` | INTEGER | FK → `participants.id` ON DELETE SET NULL, UNIQUE | связанная запись участника (для работы «от себя») |
 | `is_active` | BOOLEAN | NOT NULL | признак активности учётной записи |
 | `created_at` | TIMESTAMP | NOT NULL, UTC | время создания |
 | `last_login_at` | TIMESTAMP | | время последнего входа |
+
+Таблица содержит **одну запись** — организатора: она создаётся при старте приложения из настроек
+`ADMIN_EMAIL` и пароля (`ADMIN_PASSWORD` / `DEMO_PASSWORD`). Другие значения `role` остаются в
+перечислении, потому что поле `participants.role` использует тот же тип для характеристики
+участника в реестре, но учётных записей с этими ролями не создаётся.
 
 Пароль хранится только в виде хеша: PBKDF2-HMAC-SHA256, 200 000 итераций, случайная соль
 16 байт. Открытый пароль не сохраняется в базе и не записывается в журналы.
@@ -326,8 +332,8 @@ PostgreSQL 16. Схема создаётся SQLAlchemy по метаданны�
   накопление ошибок округления.
 - Секреты (пароль администратора, строка подключения к БД) задаются только переменными
   окружения; файл `.env` исключён из репозитория.
-- Резервное копирование: `make backup` (копия файла SQLite или `pg_dump`), восстановление —
-  `make restore`. Каталог `backups/` исключён из репозитория.
+- Резервное копирование: `python -m scripts.backup` (копия файла SQLite или `pg_dump`),
+  восстановление — `python -m scripts.restore`. Каталог `backups/` исключён из репозитория.
 - Персональные данные участников (ФИО, e-mail, телефон, организация) обрабатываются в объёме,
   необходимом для организации конференции; при внешней эксплуатации требуется соблюдение
   требований 152-ФЗ (см. раздел 4.5 технического задания).
