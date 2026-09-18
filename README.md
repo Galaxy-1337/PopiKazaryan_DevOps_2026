@@ -123,37 +123,75 @@ SQLite, Docker, pytest, ruff, GitHub Actions.
 
 ## Быстрый старт
 
-### Вариант 1. Локально (SQLite, без Docker)
+Проект можно запускать тремя способами. Команды одинаковы во всех вариантах: `make` — основной
+интерфейс, `scripts/dev.ps1` — его полный аналог для Windows без GNU make, `docker compose` —
+прямое управление контейнерами.
+
+### Способ 1. Локально через GNU make (SQLite)
+
+```bash
+make setup      # один раз: виртуальное окружение, зависимости, .env
+make migrate    # создание схемы базы данных
+make run        # запуск на http://127.0.0.1:8000
+```
+
+Установка GNU make в Windows (один раз):
 
 ```powershell
-# Windows PowerShell
+winget install ezwinports.make
+# затем перезапустить терминал и проверить: make --version
+```
+
+### Способ 2. Локально через скрипт PowerShell (SQLite)
+
+Тот же набор команд без установки make — результат идентичен:
+
+```powershell
 .\scripts\dev.ps1 setup      # venv, зависимости, .env
 .\scripts\dev.ps1 migrate    # создание схемы БД
 .\scripts\dev.ps1 run        # запуск на http://127.0.0.1:8000
 ```
 
-```bash
-# Linux / macOS / Windows с GNU make
-make setup
-make migrate
-make run
-```
-
-Затем откройте <http://127.0.0.1:8000> — это веб-интерфейс,
-<http://127.0.0.1:8000/docs> — Swagger UI, <http://127.0.0.1:8000/health> — проверка.
-
-### Вариант 2. В контейнерах (приложение + PostgreSQL)
+### Способ 3. В контейнерах (приложение + PostgreSQL)
 
 ```bash
-make up            # или: docker compose up --build -d
-make container-check
-make down
+make up              # сборка и запуск app + db
+make container-check # проверка /health
+make logs            # журналы
+make down            # остановка
 ```
+
+То же самое напрямую, без make:
+
+```powershell
+docker compose up --build -d
+docker compose ps
+docker compose down
+```
+
+Во всех случаях откройте <http://127.0.0.1:8000> — это веб-интерфейс,
+<http://127.0.0.1:8000/docs> — Swagger UI, <http://127.0.0.1:8000/health> — проверка
+работоспособности.
+
+| Что сравниваем | Способ 1 и 2 (локально) | Способ 3 (контейнеры) |
+|---|---|---|
+| СУБД | SQLite, файл `data/conference.db` | PostgreSQL 16, том `conference_db-data` |
+| Поле `app_env` в `/health` | `local` | `docker` |
+| Порт | 8000 | 8000 |
+| Требуется Docker | нет | да |
+
+Локальный и контейнерный запуски занимают **один и тот же порт 8000**, поэтому одновременно
+они работать не могут: перед переключением остановите один (`Ctrl+C` или `make down`).
 
 ## Единый командный интерфейс
 
-Все обязательные операции выполняются одной командой. Под Windows без GNU make используется
-`scripts/dev.ps1` с теми же именами команд.
+Все обязательные операции выполняются одной командой. Основной интерфейс — `make`; в Windows без
+GNU make используется `scripts/dev.ps1` с теми же именами команд.
+
+Makefile не использует Unix-утилиты (`grep`, `awk`, `sed`, `rm`, `find`, `cp`), поэтому одинаково
+работает и в Windows, и в Linux: разбор Makefile, создание `.env` и очистка каталогов выполнены
+небольшими скриптами на Python (`scripts/make_help.py`, `scripts/make_setup_env.py`,
+`scripts/make_clean.py`).
 
 | Команда | Назначение |
 |---|---|
