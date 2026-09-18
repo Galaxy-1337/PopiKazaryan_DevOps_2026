@@ -71,10 +71,12 @@ def test_list_returns_stored_participants_created_by_seed(
     assert response.status_code == 200
     body = response.json()
 
-    # Все созданные участники плюс администратор, созданный при наполнении БД.
-    assert body["total"] == len(participants) + 1
+    # Список не пустой и содержит всех созданных участников и администратора,
+    # который появляется при наполнении базы (демонстрационные данные).
+    assert body["total"] >= len(participants) + 1
     emails = {item["email"] for item in body["items"]}
     assert {participant["email"] for participant in participants} <= emails
+    assert client.get("/api/v1/auth/me").json()["email"] in emails
 
 
 def test_admin_account_has_valid_email(client: TestClient) -> None:

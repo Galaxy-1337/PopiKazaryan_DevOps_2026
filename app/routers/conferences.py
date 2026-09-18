@@ -1,4 +1,7 @@
-"""Маршруты конференций и секций."""
+"""Маршруты конференций и секций.
+
+Доступ: чтение — любой вошедший пользователь, изменение — только организатор.
+"""
 
 from __future__ import annotations
 
@@ -6,20 +9,31 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app import models, schemas
+from app import auth, models, schemas
 from app.database import get_db
 from app.routers.deps import conflict, not_found, paginate
 from app.services import section_load
 
 router = APIRouter(prefix="/api/v1", tags=["conferences"])
 
+# У каждой роли есть хотя бы одно право, поэтому такая зависимость означает
+# «пользователь вошёл в систему».
+require_authenticated = auth.require_authenticated
+require_organizer = auth.require_permission("conference:manage")
+require_section_manage = auth.require_permission("section:manage")
+
 
 # ---------------------------------------------------------------------------
 # Конференции
 # ---------------------------------------------------------------------------
-@router.get("/conferences", response_model=schemas.Page[schemas.ConferenceOut], summary="Список конференций")
+@router.get(
+    "/conferences",
+    response_model=schemas.Page[schemas.ConferenceOut],
+    summary="Список конференций",
+)
 def list_conferences(
     db: Session = Depends(get_db),
+    _user: models.User = Depends(require_authenticated),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     only_active: bool = Query(False),
@@ -34,9 +48,13 @@ def list_conferences(
     "/conferences",
     response_model=schemas.ConferenceOut,
     status_code=status.HTTP_201_CREATED,
-    summary="Создать конференцию",
+    summary="Создать конференцию (только организатор)",
 )
-def create_conference(payload: schemas.ConferenceCreate, db: Session = Depends(get_db)) -> models.Conference:
+def create_conference(
+    payload: schemas.ConferenceCreate,
+    db: Session = Depends(get_db),
+    _user: models.User = Depends(require_organizer),
+) -> models.Conference:
     exists = db.execute(
         select(models.Conference).where(models.Conference.slug == payload.slug)
     ).scalar_one_or_none()
@@ -50,8 +68,16 @@ def create_conference(payload: schemas.ConferenceCreate, db: Session = Depends(g
     return conference
 
 
-@router.get("/conferences/{conference_id}", response_model=schemas.ConferenceOut, summary="Конференция по id")
-def get_conference(conference_id: int, db: Session = Depends(get_db)) -> models.Conference:
+@router.get(
+    "/conferences/{conference_id}",
+    response_model=schemas.ConferenceOut,
+    summary="Конференция по id",
+)
+def get_conference(
+    conference_id: int,
+    db: Session = Depends(get_db),
+    _user: models.User = Depends(require_authenticated),
+) -> models.Conference:
     conference = db.get(models.Conference, conference_id)
     if conference is None:
         raise not_found("Конференция", conference_id)
@@ -59,10 +85,15 @@ def get_conference(conference_id: int, db: Session = Depends(get_db)) -> models.
 
 
 @router.patch(
-    "/conferences/{conference_id}", response_model=schemas.ConferenceOut, summary="Изменить конференцию"
+    "/conferences/{conference_id}",
+    response_model=schemas.ConferenceOut,
+    summary="Изменить конференцию (только организатор)",
 )
 def update_conference(
-    conference_id: int, payload: schemas.ConferenceUpdate, db: Session = Depends(get_db)
+    conference_id: int,
+    payload: schemas.ConferenceUpdate,
+    db: Session = Depends(get_db),
+    _user: models.User = Depends(require_organizer),
 ) -> models.Conference:
     conference = db.get(models.Conference, conference_id)
     if conference is None:
@@ -87,9 +118,13 @@ def update_conference(
 @router.delete(
     "/conferences/{conference_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Удалить конференцию",
+    summary="Удалить конференцию (только организатор)",
 )
-def delete_conference(conference_id: int, db: Session = Depends(get_db)) -> None:
+def delete_conference(
+    conference_id: int,
+    db: Session = Depends(get_db),
+    _user: models.User = Depends(require_organizer),
+) -> None:
     conference = db.get(models.Conference, conference_id)
     if conference is None:
         raise not_found("Конференция", conference_id)
@@ -108,9 +143,14 @@ def _section_out(db: Session, section: models.Section) -> schemas.SectionOut:
     return data
 
 
-@router.get("/sections", response_model=schemas.Page[schemas.SectionOut], summary="Список секций")
+@router.get(
+    "/sections",
+    response_model=schemas.Page[schemas.SectionOut],
+    summary="Список секций",
+)
 def list_sections(
     db: Session = Depends(get_db),
+    _user: models.User = Depends(require_authenticated),
     conference_id: int | None = Query(None, gt=0),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -129,9 +169,13 @@ def list_sections(
     "/sections",
     response_model=schemas.SectionOut,
     status_code=status.HTTP_201_CREATED,
-    summary="Создать секцию",
+    summary="Создать секцию (только организатор)",
 )
-def create_section(payload: schemas.SectionCreate, db: Session = Depends(get_db)) -> schemas.SectionOut:
+def create_section(
+    payload: schemas.SectionCreate,
+    db: Session = Depends(get_db),
+    _user: models.User = Depends(require_section_manage),
+) -> schemas.SectionOut:
     conference = db.get(models.Conference, payload.conference_id)
     if conference is None:
         raise not_found("Конференция", payload.conference_id)
@@ -152,17 +196,32 @@ def create_section(payload: schemas.SectionCreate, db: Session = Depends(get_db)
     return _section_out(db, section)
 
 
-@router.get("/sections/{section_id}", response_model=schemas.SectionOut, summary="Секция по id")
-def get_section(section_id: int, db: Session = Depends(get_db)) -> schemas.SectionOut:
+@router.get(
+    "/sections/{section_id}",
+    response_model=schemas.SectionOut,
+    summary="Секция по id",
+)
+def get_section(
+    section_id: int,
+    db: Session = Depends(get_db),
+    _user: models.User = Depends(require_authenticated),
+) -> schemas.SectionOut:
     section = db.get(models.Section, section_id)
     if section is None:
         raise not_found("Секция", section_id)
     return _section_out(db, section)
 
 
-@router.patch("/sections/{section_id}", response_model=schemas.SectionOut, summary="Изменить секцию")
+@router.patch(
+    "/sections/{section_id}",
+    response_model=schemas.SectionOut,
+    summary="Изменить секцию (только организатор)",
+)
 def update_section(
-    section_id: int, payload: schemas.SectionUpdate, db: Session = Depends(get_db)
+    section_id: int,
+    payload: schemas.SectionUpdate,
+    db: Session = Depends(get_db),
+    _user: models.User = Depends(require_section_manage),
 ) -> schemas.SectionOut:
     section = db.get(models.Section, section_id)
     if section is None:
@@ -183,8 +242,16 @@ def update_section(
     return _section_out(db, section)
 
 
-@router.delete("/sections/{section_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Удалить секцию")
-def delete_section(section_id: int, db: Session = Depends(get_db)) -> None:
+@router.delete(
+    "/sections/{section_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Удалить секцию (только организатор)",
+)
+def delete_section(
+    section_id: int,
+    db: Session = Depends(get_db),
+    _user: models.User = Depends(require_section_manage),
+) -> None:
     section = db.get(models.Section, section_id)
     if section is None:
         raise not_found("Секция", section_id)

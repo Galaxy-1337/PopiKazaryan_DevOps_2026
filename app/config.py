@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 
 from pydantic import Field
@@ -17,7 +18,10 @@ class Settings(BaseSettings):
     """Настройки приложения, собираемые из переменных окружения."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # Файл .env читается при обычном запуске. В тестах и в CI он отключён
+        # переменной CONFERENCE_SKIP_DOTENV: иначе локальные настройки
+        # разработчика влияли бы на результаты автоматических тестов.
+        env_file=None if os.environ.get("CONFERENCE_SKIP_DOTENV") else ".env",
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
@@ -43,6 +47,11 @@ class Settings(BaseSettings):
 
     # --- Демонстрационные данные ---------------------------------------
     seed_demo_data: bool = Field(default=True)
+
+    # --- Учётные записи демонстрационных ролей --------------------------
+    # Единый пароль для демонстрационных учётных записей всех ролей. Пароль
+    # используется только при наполнении базы и подлежит замене в эксплуатации.
+    demo_password: str = Field(default="Conference2026")
 
     # --- Правила предметной области ------------------------------------
     section_capacity: int = Field(default=3, ge=1)

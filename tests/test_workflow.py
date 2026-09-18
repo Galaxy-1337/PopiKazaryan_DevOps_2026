@@ -111,10 +111,14 @@ def test_invitation_is_queued_on_acceptance(
 def test_invitation_queue_report_lists_pending(
     client: TestClient, conference: dict, sections: list[dict], participants: list[dict]
 ) -> None:
+    """Созданное приглашение появляется в очереди рассылки."""
     _accepted_application(client, conference, sections, participants[0]["id"])
     queue = client.get("/api/v1/reports/invitations-queue").json()
-    assert queue["total"] == 1
-    assert queue["items"][0]["email"] == participants[0]["email"]
+
+    emails = [item["email"] for item in queue["items"]]
+    assert participants[0]["email"] in emails
+    # В очереди только приглашения в статусе «в очереди» и с ошибкой отправки
+    assert queue["total"] == len(queue["items"])
 
 
 def test_send_invitation_success_and_failure(

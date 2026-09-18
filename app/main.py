@@ -20,7 +20,15 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import __version__, database
 from app.config import get_settings
-from app.routers import applications, conferences, participants, reports, service, workflow
+from app.routers import (
+    applications,
+    auth_routes,
+    conferences,
+    participants,
+    reports,
+    service,
+    workflow,
+)
 from app.seed import seed_database
 from app.web import router as web_router
 
@@ -133,6 +141,7 @@ def create_app() -> FastAPI:
 
     # --- Роутеры -------------------------------------------------------
     app.include_router(service.router)
+    app.include_router(auth_routes.router)
     app.include_router(conferences.router)
     app.include_router(participants.router)
     app.include_router(applications.router)

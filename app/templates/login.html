@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Вход — Конференция</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="login-page">
+<main class="login-wrap">
+  <div class="login-card">
+    <div class="login-brand">
+      <span class="logo">К</span>
+      <div>
+        <strong>Конференция</strong>
+        <small>учёт участников, заявок, оргвзносов, тезисов и гостиницы</small>
+      </div>
+    </div>
+
+    <h1>Вход в систему</h1>
+    <p class="login-hint">
+      Доступ к разделам зависит от роли учётной записи: организатор, участник,
+      докладчик или рецензент.
+    </p>
+
+    {% if error %}
+      <div class="login-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/login" class="login-form">
+      <label>Адрес электронной почты
+        <input type="email" name="email" value="{{ email }}" required autofocus
+               autocomplete="username" placeholder="например, organizer@example.com">
+      </label>
+      <label>Пароль
+        <input type="password" name="password" required autocomplete="current-password"
+               placeholder="пароль учётной записи">
+      </label>
+      <button class="primary" type="submit">Войти</button>
+    </form>
+
+    <details class="login-demo">
+      <summary>Демонстрационные учётные записи</summary>
+      <table class="data">
+        <thead>
+        <tr><th>Роль</th><th>Адрес</th><th>Что доступно</th></tr>
+        </thead>
+        <tbody>
+        <tr>
+          <td>Организатор</td>
+          <td><code>organizer@example.com</code></td>
+          <td>все разделы: конференции, заявки, взносы, приглашения, гостиница, отчёты</td>
+        </tr>
+        <tr>
+          <td>Участник</td>
+          <td><code>listener@example.com</code></td>
+          <td>свои заявки, свои взносы, свои приглашения, своя гостиница</td>
+        </tr>
+        <tr>
+          <td>Докладчик</td>
+          <td><code>speaker@example.com</code></td>
+          <td>как участник, плюс подача тезисов по своей заявке</td>
+        </tr>
+        <tr>
+          <td>Рецензент</td>
+          <td><code>reviewer@example.com</code></td>
+          <td>тезисы на рецензию: выставление оценки и комментария</td>
+        </tr>
+        </tbody>
+      </table>
+      <p class="login-hint">
+        Пароль демонстрационных учётных записей задаётся переменной окружения
+        <code>DEMO_PASSWORD</code> (по умолчанию <code>Conference2026</code>).
+      </p>
+    </details>
+
+    <p class="login-foot">
+      Версия {{ version }} ·
+      <a href="/docs">Swagger UI</a> ·
+      <a href="/health">/health</a>
+    </p>
+  </div>
+</main>
+</body>
+</html>

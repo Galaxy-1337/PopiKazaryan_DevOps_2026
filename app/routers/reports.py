@@ -1,4 +1,7 @@
-"""Отчётные маршруты: сводки для рассылок и планирования гостиницы."""
+"""Отчётные маршруты: сводки для рассылок и планирования гостиницы.
+
+Доступ: только организатор — отчёты содержат сводные данные по всем участникам.
+"""
 
 from __future__ import annotations
 
@@ -8,12 +11,14 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app import models, schemas, schemas_reports
+from app import auth, models, schemas, schemas_reports
 from app.database import get_db
 from app.models import utcnow
 from app.routers.deps import not_found
 
 router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
+
+require_report_read = auth.require_permission("report:read")
 
 
 def _count_by(db: Session, column, model, *filters: object) -> dict[str, int]:  # noqa: ANN001
@@ -37,7 +42,11 @@ def _count_by(db: Session, column, model, *filters: object) -> dict[str, int]:  
         "и планирования потребности в гостинице."
     ),
 )
-def conference_report(conference_id: int, db: Session = Depends(get_db)) -> schemas.ReportOut:
+def conference_report(
+    conference_id: int,
+    db: Session = Depends(get_db),
+    _user: models.User = Depends(require_report_read),
+) -> schemas.ReportOut:
     conference = db.get(models.Conference, conference_id)
     if conference is None:
         raise not_found("Конференция", conference_id)
@@ -143,6 +152,7 @@ def conference_report(conference_id: int, db: Session = Depends(get_db)) -> sche
 )
 def invitations_queue(
     db: Session = Depends(get_db),
+    _user: models.User = Depends(require_report_read),
     limit: int = Query(100, ge=1, le=500),
 ) -> schemas_reports.InvitationQueueOut:
     """Готовая очередь рассылки: приглашения со статусом queued или failed."""
@@ -177,7 +187,11 @@ def invitations_queue(
         "направляет письмо в организацию, а не каждому участнику отдельно."
     ),
 )
-def mailing_list(conference_id: int, db: Session = Depends(get_db)) -> schemas_reports.MailingListOut:
+def mailing_list(
+    conference_id: int,
+    db: Session = Depends(get_db),
+    _user: models.User = Depends(require_report_read),
+) -> schemas_reports.MailingListOut:
     conference = db.get(models.Conference, conference_id)
     if conference is None:
         raise not_found("Конференция", conference_id)

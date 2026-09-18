@@ -221,6 +221,7 @@ class Participant(Base):
     invitations: Mapped[list[Invitation]] = relationship(
         back_populates="participant", cascade="all, delete-orphan"
     )
+    user: Mapped[User | None] = relationship(back_populates="participant", uselist=False)
 
     @property
     def short_name(self) -> str:
@@ -454,6 +455,76 @@ class AuditLog(Base):
         return f"<AuditLog {self.entity}.{self.action}>"
 
 
+class User(Base):
+    """Учётная запись для входа в систему.
+
+    Роль пользователя определяет его возможности. Пароль хранится только в виде
+    хеша (PBKDF2-HMAC-SHA256 со случайной солью); открытый пароль нигде не
+    сохраняется и не выводится в журналы.
+    """
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(200), nullable=False, unique=True, index=True)
+    full_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    role: Mapped[ParticipantRole] = mapped_column(
+        Enum(ParticipantRole, native_enum=False, length=20),
+        nullable=False,
+        default=ParticipantRole.LISTENER,
+        index=True,
+    )
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Учётная запись участника связана с записью в реестре участников, чтобы
+    # заявки, взносы и тезисы создавались «от себя».
+    participant_id: Mapped[int | None] = mapped_column(
+        ForeignKey("participants.id", ondelete="SET NULL"), unique=True
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    participant: Mapped[Participant | None] = relationship(back_populates="user")
+    sessions: Mapped[list[Session]] = relationship(back_populates="user", cascade="all, delete-orphan")
+
+    @property
+    def role_title(self) -> str:
+        """Название роли для интерфейса."""
+        return {
+            ParticipantRole.ORGANIZER: "Организатор",
+            ParticipantRole.LISTENER: "Участник (слушатель)",
+            ParticipantRole.SPEAKER: "Докладчик",
+            ParticipantRole.REVIEWER: "Рецензент",
+        }.get(self.role, str(self.role))
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<User id={self.id} email={self.email!r} role={self.role.value}>"
+
+
+class Session(Base):
+    """Сессия входа пользователя.
+
+    Идентификатор сессии — случайная строка, которая передаётся в cookie
+    ``conference_session``. Сессия живёт ограниченное время и удаляется при
+    выходе из системы.
+    """
+
+    __tablename__ = "sessions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    app_env: Mapped[str] = mapped_column(String(20), nullable=False, default="local")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    user: Mapped[User] = relationship(back_populates="sessions")
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<Session user_id={self.user_id} expires_at={self.expires_at}>"
+
+
 __all__ = [
     "Application",
     "ApplicationStatus",
@@ -469,7 +540,9 @@ __all__ = [
     "ParticipantRole",
     "ParticipationFormat",
     "Section",
+    "Session",
     "Thesis",
     "ThesisStatus",
+    "User",
     "utcnow",
 ]

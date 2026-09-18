@@ -12,6 +12,74 @@
   --err: #dc2626;
 }
 
+/* --- Шапка: сведения о пользователе и его роли --- */
+.user-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid #334155;
+  border-radius: 999px;
+  font-size: 13px;
+  color: #e2e8f0;
+}
+.user-name { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.role-badge {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 12px;
+}
+.user-box .logout { color: #93c5fd; text-decoration: none; margin-left: 4px; }
+.user-box .logout:hover { text-decoration: underline; }
+
+.role-note {
+  margin: 0 0 18px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 14px;
+}
+
+/* --- Экран входа --- */
+.login-page { display: grid; place-items: center; min-height: 100vh; background: #f1f5f9; }
+.login-wrap { width: 100%; max-width: 620px; padding: 24px; }
+.login-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 26px 28px 20px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, .08);
+}
+.login-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.login-brand small { display: block; color: var(--muted); font-size: 12px; }
+.login-card h1 { margin: 0 0 6px; font-size: 22px; }
+.login-hint { margin: 0 0 16px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.login-error {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: 13px;
+}
+.login-form { display: grid; gap: 12px; margin-bottom: 16px; }
+.login-form label { font-size: 13px; color: var(--muted); }
+.login-form input { width: 100%; }
+.login-form button { justify-self: start; padding: 9px 22px; }
+.login-demo { margin-top: 6px; font-size: 13px; }
+.login-demo summary { cursor: pointer; color: var(--accent); }
+.login-demo table { margin-top: 10px; }
+.login-demo code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+.login-foot { margin: 16px 0 0; text-align: center; color: var(--muted); font-size: 12px; }
+.login-foot a { color: var(--accent); text-decoration: none; }
+
+
 * { box-sizing: border-box; }
 
 body {

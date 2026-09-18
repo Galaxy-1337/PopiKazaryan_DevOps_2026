@@ -352,6 +352,39 @@ class HealthOut(BaseModel):
     checked_at: datetime
 
 
+# ---------------------------------------------------------------------------
+# Аутентификация и роли
+# ---------------------------------------------------------------------------
+class LoginRequest(BaseModel):
+    """Данные для входа в систему."""
+
+    email: EmailStr
+    password: Annotated[str, Field(min_length=1, max_length=200)]
+
+
+class CurrentUserOut(BaseModel):
+    """Сведения о текущем пользователе для интерфейса."""
+
+    model_config = ORM
+
+    id: int
+    email: str
+    full_name: str
+    role: ParticipantRole
+    role_title: str
+    participant_id: int | None
+    is_active: bool
+    last_login_at: datetime | None
+
+
+class RoleOut(BaseModel):
+    """Роль и перечень доступных ей действий."""
+
+    role: ParticipantRole
+    title: str
+    permissions: list[str]
+
+
 class ReportOut(BaseModel):
     """Сводный отчёт для очередей рассылки и планирования гостиницы."""
 
@@ -380,6 +413,7 @@ __all__ = [
     "ConferenceCreate",
     "ConferenceOut",
     "ConferenceUpdate",
+    "CurrentUserOut",
     "ErrorBody",
     "ErrorResponse",
     "FeeCreate",
@@ -391,11 +425,13 @@ __all__ = [
     "HotelBookingOut",
     "InvitationCreate",
     "InvitationOut",
+    "LoginRequest",
     "Page",
     "ParticipantCreate",
     "ParticipantOut",
     "ParticipantUpdate",
     "ReportOut",
+    "RoleOut",
     "SectionCreate",
     "SectionOut",
     "SectionUpdate",

@@ -6,7 +6,9 @@
   <title>Конференция — учёт участников</title>
   <link rel="stylesheet" href="/static/css/app.css">
 </head>
-<body>
+<body data-role="{{ user.role.value }}"
+      data-participant-id="{{ user.participant_id if user.participant_id is not none else '' }}"
+      data-permissions="{{ permissions | join(',') }}">
 <header class="topbar">
   <div class="brand">
     <span class="logo">К</span>
@@ -16,36 +18,60 @@
     </div>
   </div>
   <nav class="nav">
-    <button class="tab is-active" data-tab="dashboard">Сводка</button>
-    <button class="tab" data-tab="applications">Заявки</button>
-    <button class="tab" data-tab="finance">Оргвзносы</button>
-    <button class="tab" data-tab="invitations">Приглашения</button>
-    <button class="tab" data-tab="hotel">Гостиница</button>
-    <button class="tab" data-tab="theses">Тезисы</button>
+    {% for tab in tabs %}
+      <button class="tab{% if loop.first %} is-active{% endif %}" data-tab="{{ tab.key }}">{{ tab.title }}</button>
+    {% endfor %}
   </nav>
+  <div class="user-box">
+    <span class="role-badge">{{ user.role_title }}</span>
+    <span class="user-name" title="{{ user.email }}">{{ user.full_name }}</span>
+    <a class="logout" href="/logout">Выйти</a>
+  </div>
   <div class="status" id="health">проверка…</div>
 </header>
 
 <main>
   <div class="toast" id="toast" hidden></div>
 
+  <p class="role-note">
+    Роль: <strong>{{ user.role_title }}</strong>.
+    {% if 'report:read' in permissions %}
+      Доступны все разделы: управление конференциями и участниками, решения по заявкам,
+      оргвзносы, рассылка приглашений, брони гостиницы и отчёты.
+    {% elif 'thesis:review' in permissions %}
+      Доступны тезисы, поданные на рецензию: выставление оценки и комментария.
+    {% elif 'thesis:submit_own' in permissions %}
+      Доступны свои заявки, свои оргвзносы, свои приглашения, своя гостиница и подача тезисов
+      по своей заявке.
+    {% else %}
+      Доступны свои заявки, свои оргвзносы, свои приглашения и своя гостиница.
+    {% endif %}
+  </p>
+
   <!-- СВОДКА -->
   <section class="panel is-active" id="panel-dashboard">
     <h2>Сводка по конференции</h2>
-    <div class="row">
-      <label>Конференция
-        <select id="report-conference"></select>
-      </label>
-      <button class="primary" id="report-refresh">Обновить</button>
-    </div>
-    <div class="cards" id="report-cards"></div>
-    <h3>Распределение по статусам</h3>
-    <div class="grid2" id="report-breakdown"></div>
+    {% if 'report:read' in permissions %}
+      <div class="row">
+        <label>Конференция
+          <select id="report-conference"></select>
+        </label>
+        <button class="primary" id="report-refresh">Обновить</button>
+      </div>
+      <div class="cards" id="report-cards"></div>
+      <h3>Распределение по статусам</h3>
+      <div class="grid2" id="report-breakdown"></div>
+    {% else %}
+      <p class="notice">
+        Сводный отчёт по конференции доступен организатору. Ваши данные находятся
+        в разделе {% if 'thesis:review' in permissions %}«Тезисы на рецензию»{% else %}«Мои заявки»{% endif %}.
+      </p>
+    {% endif %}
   </section>
 
   <!-- ЗАЯВКИ -->
   <section class="panel" id="panel-applications">
-    <h2>Заявки на участие</h2>
+    <h2>{% if 'report:read' in permissions %}Заявки на участие{% else %}Мои заявки{% endif %}</h2>
     <div class="row">
       <label>Статус
         <select id="app-status-filter">
@@ -58,28 +84,34 @@
         </select>
       </label>
       <button class="primary" id="apps-refresh">Обновить</button>
-      <button id="app-create-toggle">Новая заявка</button>
+      {% if 'application:create' in permissions %}
+        <button id="app-create-toggle">Новая заявка</button>
+      {% endif %}
     </div>
 
-    <form class="card-form" id="app-create-form" hidden>
-      <h3>Новая заявка</h3>
-      <p class="notice" id="dict-warning" hidden></p>
-      <div class="grid2">
-        <label>Секция <select id="app-section" required></select></label>
-        <label>Участник <select id="app-participant" required></select></label>
-        <label>Тема <input id="app-topic" maxlength="300" required placeholder="Тема доклада"></label>
-        <label>Формат
-          <select id="app-format">
-            <option value="offline">очный</option>
-            <option value="online">дистанционный</option>
-            <option value="poster">стендовый</option>
-          </select>
-        </label>
-        <label class="check"><input type="checkbox" id="app-hotel"> нужна гостиница</label>
-      </div>
-      <label>Аннотация <textarea id="app-annotation" rows="3"></textarea></label>
-      <button class="primary" type="submit">Создать черновик</button>
-    </form>
+    {% if 'application:create' in permissions %}
+      <form class="card-form" id="app-create-form" hidden>
+        <h3>Новая заявка</h3>
+        <p class="notice" id="dict-warning" hidden></p>
+        <div class="grid2">
+          <label>Секция <select id="app-section" required></select></label>
+          {% if 'application:decide' in permissions %}
+            <label>Участник <select id="app-participant" required></select></label>
+          {% endif %}
+          <label>Тема <input id="app-topic" maxlength="300" required placeholder="Тема доклада"></label>
+          <label>Формат
+            <select id="app-format">
+              <option value="offline">очный</option>
+              <option value="online">дистанционный</option>
+              <option value="poster">стендовый</option>
+            </select>
+          </label>
+          <label class="check"><input type="checkbox" id="app-hotel"> нужна гостиница</label>
+        </div>
+        <label>Аннотация <textarea id="app-annotation" rows="3"></textarea></label>
+        <button class="primary" type="submit">Создать черновик</button>
+      </form>
+    {% endif %}
 
     <table class="data">
       <thead>
@@ -94,7 +126,7 @@
 
   <!-- ОРГВЗНОСЫ -->
   <section class="panel" id="panel-finance">
-    <h2>Оргвзносы</h2>
+    <h2>{% if 'fee:manage' in permissions %}Оргвзносы{% else %}Мои оргвзносы{% endif %}</h2>
     <div class="row">
       <label>Статус
         <select id="fee-status-filter">
@@ -117,7 +149,7 @@
 
   <!-- ПРИГЛАШЕНИЯ -->
   <section class="panel" id="panel-invitations">
-    <h2>Очередь рассылки приглашений</h2>
+    <h2>{% if 'invitation:manage' in permissions %}Очередь рассылки приглашений{% else %}Мои приглашения{% endif %}</h2>
     <div class="row">
       <label>Статус
         <select id="inv-status-filter">
@@ -139,7 +171,7 @@
 
   <!-- ГОСТИНИЦА -->
   <section class="panel" id="panel-hotel">
-    <h2>Потребность в гостинице</h2>
+    <h2>{% if 'hotel:manage' in permissions %}Потребность в гостинице{% else %}Моя гостиница{% endif %}</h2>
     <div class="row">
       <label>Статус
         <select id="hotel-status-filter">
@@ -161,9 +193,26 @@
     </table>
   </section>
 
+  <!-- УЧАСТНИКИ (только организатор) -->
+  <section class="panel" id="panel-participants">
+    <h2>Реестр участников</h2>
+    <div class="row">
+      <label>Поиск
+        <input id="participant-search" placeholder="ФИО или e-mail">
+      </label>
+      <button class="primary" id="participants-refresh">Обновить</button>
+    </div>
+    <table class="data">
+      <thead>
+      <tr><th>ID</th><th>ФИО</th><th>E-mail</th><th>Организация</th><th>Город</th><th>Роль</th></tr>
+      </thead>
+      <tbody id="participants-body"></tbody>
+    </table>
+  </section>
+
   <!-- ТЕЗИСЫ -->
   <section class="panel" id="panel-theses">
-    <h2>Тезисы докладов</h2>
+    <h2>{% if 'thesis:review' in permissions %}Тезисы на рецензию{% else %}Мои тезисы{% endif %}</h2>
     <div class="row">
       <button class="primary" id="theses-refresh">Обновить</button>
     </div>
@@ -182,6 +231,7 @@
   <a href="/redoc" target="_blank" rel="noopener">ReDoc</a>
   <a href="/health" target="_blank" rel="noopener">/health</a>
   <a href="/openapi.json" target="_blank" rel="noopener">openapi.json</a>
+  <a href="/logout">Выйти</a>
 </footer>
 
 <script src="/static/js/app.js"></script>
