@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app import auth, models, schemas, schemas_reports
+from app import auth, models, schemas, schemas_reports, services
 from app.database import get_db
 from app.models import utcnow
 from app.routers.deps import not_found
@@ -175,6 +175,76 @@ def invitations_queue(
         for invitation, participant in db.execute(stmt)
     ]
     return schemas_reports.InvitationQueueOut(items=items, total=len(items))
+
+
+@router.get(
+    "/sections-load/{conference_id}",
+    response_model=schemas_reports.SectionsLoadOut,
+    summary="Заполненность секций конференции",
+    description=(
+        "Возвращает по каждой секции вместимость, количество занятых мест и остаток. "
+        "Занятыми считаются заявки в статусах «подана» и «принята» — так же, как их "
+        "считает правило вместимости секции при приёме новой заявки. Отчёт нужен "
+        "программному комитету, чтобы видеть заполненные секции и распределять доклады."
+    ),
+)
+def sections_load(
+    conference_id: int,
+    db: Session = Depends(get_db),
+    _user: models.User = Depends(require_report_read),
+) -> schemas_reports.SectionsLoadOut:
+    """Сводка заполненности секций: занятые места берутся из тех же статусов, что и в правиле."""
+    conference = db.get(models.Conference, conference_id)
+    if conference is None:
+        raise not_found("Конференция", conference_id)
+
+    sections = list(
+        db.execute(
+            select(models.Section)
+            .where(models.Section.conference_id == conference_id)
+            .order_by(models.Section.title, models.Section.id)
+        ).scalars()
+    )
+
+    # Один агрегирующий запрос вместо запроса на каждую секцию.
+    counts: dict[int, dict[models.ApplicationStatus, int]] = {}
+    if sections:
+        stmt = (
+            select(models.Application.section_id, models.Application.status, func.count())
+            .where(models.Application.section_id.in_([section.id for section in sections]))
+            .group_by(models.Application.section_id, models.Application.status)
+        )
+        for section_id, status, count in db.execute(stmt):
+            counts.setdefault(section_id, {})[status] = int(count)
+
+    active_statuses = set(services.ACTIVE_SECTION_STATUSES)
+    items: list[schemas_reports.SectionLoadItem] = []
+    for section in sections:
+        by_status = counts.get(section.id, {})
+        taken = sum(count for status, count in by_status.items() if status in active_statuses)
+        items.append(
+            schemas_reports.SectionLoadItem(
+                section_id=section.id,
+                title=section.title,
+                is_open=section.is_open,
+                capacity=section.capacity,
+                submitted=by_status.get(models.ApplicationStatus.SUBMITTED, 0),
+                accepted=by_status.get(models.ApplicationStatus.ACCEPTED, 0),
+                taken=taken,
+                free_seats=max(section.capacity - taken, 0),
+                load_percent=round(taken * 100 / section.capacity, 2),
+                is_full=taken >= section.capacity,
+            )
+        )
+
+    return schemas_reports.SectionsLoadOut(
+        conference_id=conference.id,
+        sections_total=len(items),
+        capacity_total=sum(item.capacity for item in items),
+        taken_total=sum(item.taken for item in items),
+        free_total=sum(item.free_seats for item in items),
+        items=items,
+    )
 
 
 @router.get(
