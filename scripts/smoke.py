@@ -7,7 +7,7 @@ The application requires authentication, so the check does three passes:
 * after login the protected endpoints must answer 200.
 
 Environment variables ``SMOKE_EMAIL`` and ``SMOKE_PASSWORD`` override the
-credentials used for the authenticated pass (defaults follow demo accounts).
+credentials used for the authenticated pass (defaults are the organizer account).
 
 Console output is ASCII-only: Windows consoles decode program output using the
 system code page, so non-ASCII text would be displayed as garbage.
