@@ -4,9 +4,10 @@
     Single command interface for the "Conference" project on Windows.
 
 .DESCRIPTION
-    Full equivalent of the Makefile for environments without GNU make.
-    Every mandatory check is executed by one command, as required by the
-    course rules ("obligatory local verification commands").
+    Single entry point for every project command: setup, run, checks,
+    migrations, backups and the container environment. Every mandatory check
+    is executed by one command, as required by the course rules
+    ("obligatory local verification commands").
 
     Output messages are ASCII-only on purpose: Windows PowerShell 5.1 reads
     .ps1 files using the system code page, so non-ASCII text would break

@@ -90,11 +90,11 @@ def me(user: models.User | None = Depends(auth.get_current_user)) -> models.User
 @router.get(
     "/roles",
     response_model=list[schemas.RoleOut],
-    summary="Роли и их права",
+    summary="Учётные записи и их права",
     description=(
-        "Справочник ролей: какие действия доступны каждой роли. Используется "
-        "интерфейсом для скрытия недоступных разделов и удобен для проверки "
-        "разграничения доступа на защите."
+        "Справочник учётных записей: какие действия доступны каждой из них. "
+        "В системе одна учётная запись — организатор с полным набором прав; "
+        "ответ удобен для проверки доступа на защите."
     ),
 )
 def roles() -> list[schemas.RoleOut]:
@@ -102,7 +102,7 @@ def roles() -> list[schemas.RoleOut]:
         schemas.RoleOut(
             role=role,
             title=auth.ROLE_TITLES.get(role, str(role)),
-            permissions=sorted(auth.PERMISSIONS.get(role, set())),
+            permissions=sorted(permissions),
         )
-        for role in models.ParticipantRole
+        for role, permissions in auth.PERMISSIONS.items()
     ]

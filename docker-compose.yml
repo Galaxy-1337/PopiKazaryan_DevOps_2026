@@ -1,7 +1,8 @@
 # =====================================================================
 #  Контейнерное окружение проекта «Конференция»: приложение + PostgreSQL
-#  Запуск:  make up      (или: docker compose up --build -d)
-#  Стоп:    make down
+#  Запуск:  docker compose up --build -d
+#  Стоп:    docker compose down
+#  Проверка: python -m scripts.container_check
 # =====================================================================
 name: conference
 

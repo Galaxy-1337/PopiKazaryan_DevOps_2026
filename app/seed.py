@@ -35,80 +35,34 @@ def _is_valid_email(value: str) -> bool:
 
 
 def seed_database() -> None:
-    """Создать учётные записи и (при необходимости) демонстрационные данные."""
+    """Создать учётную запись организатора и (при необходимости) демонстрационные данные.
+
+    Учётная запись в системе одна — организатор: остальные роли участников
+    существуют только как характеристика записи участника в реестре и входа
+    в систему не имеют.
+    """
     settings = get_settings()
     with session_scope() as db:
         _ensure_admin(db)
+        _remove_other_accounts(db, settings.admin_email.strip().lower())
         if settings.seed_demo_data:
             _ensure_demo_data(db, settings)
-        _ensure_role_accounts(db, settings)
 
 
-def _ensure_role_accounts(db, settings) -> None:  # noqa: ANN001
-    """Создать по одной учётной записи на каждую роль.
+def _remove_other_accounts(db, email: str) -> None:  # noqa: ANN001
+    """Удалить все учётные записи, кроме организатора.
 
-    Нужно, чтобы на защите можно было войти под каждой ролью и показать
-    разграничение доступа. Все демонстрационные учётные записи имеют один пароль
-    из настройки ``DEMO_PASSWORD``; адрес организатора задаётся ``ADMIN_EMAIL``,
-    чтобы его можно было изменить в эксплуатации.
+    В системе должна остаться одна учётная запись. База, созданная предыдущей
+    версией приложения, могла содержать учётные записи других ролей; они
+    удаляются, чтобы состояние базы совпадало с новой схемой наполнения.
+    Вместе с учётной записью удаляются её сессии (каскадом).
     """
-    from app import auth  # локальный импорт: избегаем циклической зависимости
-
-    role_emails = {
-        models.ParticipantRole.ORGANIZER: settings.admin_email.strip().lower(),
-        models.ParticipantRole.LISTENER: "listener@example.com",
-        models.ParticipantRole.SPEAKER: "speaker@example.com",
-        models.ParticipantRole.REVIEWER: "reviewer@example.com",
-    }
-    role_names = {
-        models.ParticipantRole.ORGANIZER: settings.admin_full_name,
-        models.ParticipantRole.LISTENER: "Сидоров Пётр Алексеевич",
-        models.ParticipantRole.SPEAKER: "Иванов Иван Иванович",
-        models.ParticipantRole.REVIEWER: "Кузнецова Ольга Дмитриевна",
-    }
-
-    for role, email in role_emails.items():
-        existing = auth.find_user(db, email)
-        if existing is not None:
-            # Пароль демонстрационной учётной записи приводим к текущему значению
-            # переменной окружения: иначе после смены DEMO_PASSWORD вход перестал
-            # бы работать, а в базе остался бы старый пароль.
-            if not auth.verify_password(settings.demo_password, existing.password_hash):
-                existing.password_hash = auth.hash_password(settings.demo_password)
-                logger.info("Пароль учётной записи %s приведён к значению DEMO_PASSWORD", email)
-            if not existing.is_active:
-                existing.is_active = True
-            continue
-
-        # Связываем учётную запись с уже существующим участником той же роли,
-        # чтобы заявки, взносы и тезисы создавались «от себя».
-        participant = (
-            db.execute(
-                select(models.Participant)
-                .where(models.Participant.role == role)
-                .where(models.Participant.email == email)
-                .order_by(models.Participant.id)
-                .limit(1)
-            ).scalar_one_or_none()
-            if role == models.ParticipantRole.ORGANIZER
-            else db.execute(
-                select(models.Participant)
-                .where(models.Participant.role == role)
-                .order_by(models.Participant.id)
-                .limit(1)
-            ).scalar_one_or_none()
-        )
-
-        user = auth.create_user(
-            db,
-            email=email,
-            password=settings.demo_password,
-            role=role,
-            full_name=role_names[role],
-            participant=participant,
-        )
-        db.add(user)
-        logger.info("Создана учётная запись роли «%s»: %s", user.role_title, email)
+    others = list(db.execute(select(models.User).where(models.User.email != email)).scalars())
+    for user in others:
+        logger.info("Удалена лишняя учётная запись: %s", user.email)
+        db.delete(user)
+    if others:
+        logger.info("Всего удалено учётных записей: %s", len(others))
 
 
 def _ensure_admin(db) -> None:  # noqa: ANN001
@@ -180,10 +134,10 @@ def _ensure_admin(db) -> None:  # noqa: ANN001
 def _ensure_admin_user(db, settings, email: str) -> None:  # noqa: ANN001
     """Создать или исправить учётную запись организатора для входа в систему.
 
-    Пароль организатора совпадает с паролем остальных демонстрационных учётных
-    записей (``DEMO_PASSWORD``): так на защите достаточно помнить один пароль.
-    Если администратор менял пароль вручную и переменная окружения не задана,
-    используется прежний пароль из ``ADMIN_PASSWORD``.
+    Пароль берётся из ``DEMO_PASSWORD``, а если он не задан — из
+    ``ADMIN_PASSWORD`` (свойство ``effective_admin_password``). Если пароль в
+    базе уже отличается от текущей настройки, хеш приводится к ней: иначе после
+    смены переменной окружения вход перестал бы работать со старым паролем.
     """
     from app import auth
 

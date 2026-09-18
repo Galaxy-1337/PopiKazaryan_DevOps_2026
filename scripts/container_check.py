@@ -3,7 +3,7 @@
 Console output is ASCII-only: Windows consoles decode program output using the
 system code page, so non-ASCII text would be displayed as garbage.
 
-Run (after ``make up``):
+Run (after ``docker compose up --build -d``):
     python -m scripts.container_check
 """
 
