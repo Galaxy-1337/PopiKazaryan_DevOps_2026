@@ -68,13 +68,16 @@ def test_logout_ends_session(client: TestClient) -> None:
 def test_password_is_never_stored_in_plain_form(db) -> None:  # noqa: ANN001
     """В базе хранится только хеш пароля, а не сам пароль."""
     from app import models
+    from app.config import get_settings
 
+    settings = get_settings()
+    secrets = {ORGANIZER[1], settings.demo_password, "Conference2026"}
     users = db.query(models.User).all()
     assert users
     for user in users:
         assert user.password_hash.startswith("pbkdf2_sha256$")
-        assert ORGANIZER[1] not in user.password_hash
-        assert "Conference2026" not in user.password_hash
+        for secret in secrets:
+            assert secret not in user.password_hash
 
 
 def test_password_hash_is_salted(db) -> None:  # noqa: ANN001

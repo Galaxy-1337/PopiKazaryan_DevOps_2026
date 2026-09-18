@@ -46,15 +46,20 @@ jobs:
       - name: Автоматические тесты (pytest)
         env:
           DATABASE_URL: sqlite+pysqlite:///./data/ci.db
-          SEED_DEMO_DATA: "false"
-          ADMIN_EMAIL: ci@example.com
-          ADMIN_PASSWORD: ci-password
+          SEED_DEMO_DATA: "true"
+          ADMIN_EMAIL: organizer@example.com
+          ADMIN_PASSWORD: Conference2026
+          DEMO_PASSWORD: Conference2026
         run: pytest -q
 
       - name: Дымовая проверка приложения
         env:
           DATABASE_URL: sqlite+pysqlite:///./data/smoke.db
-          SEED_DEMO_DATA: "false"
+          SEED_DEMO_DATA: "true"
+          ADMIN_EMAIL: organizer@example.com
+          ADMIN_PASSWORD: Conference2026
+          SMOKE_EMAIL: organizer@example.com
+          SMOKE_PASSWORD: Conference2026
         run: python -m scripts.smoke
 
       - name: Проверка схемы базы данных (migrate)
@@ -80,6 +85,8 @@ jobs:
           docker run -d --name conference-ci \
             -e DATABASE_URL=sqlite+pysqlite:////app/data/conference.db \
             -e SEED_DEMO_DATA=true \
+            -e ADMIN_EMAIL=organizer@example.com \
+            -e ADMIN_PASSWORD=Conference2026 \
             -p 8000:8000 conference:${{ github.sha }}
 
       - name: Ожидание готовности приложения

@@ -24,7 +24,7 @@ os.environ["CONFERENCE_SKIP_DOTENV"] = "1"
 os.environ.setdefault("DATABASE_URL", f"sqlite+pysqlite:///{TEST_DB.as_posix()}")
 os.environ.setdefault("SEED_DEMO_DATA", "true")
 os.environ.setdefault("ADMIN_EMAIL", "organizer@example.com")
-os.environ.setdefault("ADMIN_PASSWORD", "Organizer2026")
+os.environ.setdefault("ADMIN_PASSWORD", "Conference2026")
 os.environ.setdefault("DEMO_PASSWORD", "Conference2026")
 os.environ.setdefault("SECTION_CAPACITY", "3")
 os.environ.setdefault("HOTEL_CONFIRMATION_HOURS", "48")
@@ -35,10 +35,30 @@ from sqlalchemy.orm import Session  # noqa: E402
 from app.database import SessionLocal, drop_all, engine  # noqa: E402
 from app.main import app as fastapi_app  # noqa: E402
 
-ORGANIZER = ("organizer@example.com", "Organizer2026")
-LISTENER = ("listener@example.com", "Conference2026")
-SPEAKER = ("speaker@example.com", "Conference2026")
-REVIEWER = ("reviewer@example.com", "Conference2026")
+
+def credentials(role: str) -> tuple[str, str]:
+    """Адрес и пароль демонстрационной учётной записи роли.
+
+    Значения берутся из настроек приложения, поэтому тесты не зависят от того,
+    что записано в локальном файле ``.env``: проверяется именно то, что создаёт
+    наполнение базы данных.
+    """
+    from app.config import get_settings
+
+    settings = get_settings()
+    accounts = {
+        "organizer": (settings.admin_email, settings.effective_admin_password),
+        "listener": ("listener@example.com", settings.demo_password),
+        "speaker": ("speaker@example.com", settings.demo_password),
+        "reviewer": ("reviewer@example.com", settings.demo_password),
+    }
+    return accounts[role]
+
+
+ORGANIZER = credentials("organizer")
+LISTENER = credentials("listener")
+SPEAKER = credentials("speaker")
+REVIEWER = credentials("reviewer")
 
 
 def _login(client: TestClient, credentials: tuple[str, str]) -> TestClient:

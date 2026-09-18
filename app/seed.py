@@ -68,7 +68,16 @@ def _ensure_role_accounts(db, settings) -> None:  # noqa: ANN001
     }
 
     for role, email in role_emails.items():
-        if auth.find_user(db, email) is not None:
+        existing = auth.find_user(db, email)
+        if existing is not None:
+            # Пароль демонстрационной учётной записи приводим к текущему значению
+            # переменной окружения: иначе после смены DEMO_PASSWORD вход перестал
+            # бы работать, а в базе остался бы старый пароль.
+            if not auth.verify_password(settings.demo_password, existing.password_hash):
+                existing.password_hash = auth.hash_password(settings.demo_password)
+                logger.info("Пароль учётной записи %s приведён к значению DEMO_PASSWORD", email)
+            if not existing.is_active:
+                existing.is_active = True
             continue
 
         # Связываем учётную запись с уже существующим участником той же роли,
