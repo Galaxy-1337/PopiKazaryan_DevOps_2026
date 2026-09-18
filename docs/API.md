@@ -414,6 +414,11 @@ curl -s -X PATCH http://127.0.0.1:8000/api/v1/conferences/1 \
 
 `taken_seats` — число заявок в статусах `submitted` и `accepted`; `free_seats` — остаток мест.
 
+### `GET /api/v1/sections/{id}`
+
+Одна секция в том же формате, что и список — с вычисляемыми `taken_seats` и `free_seats`.
+Если секции нет → `404 not_found`.
+
 ### `POST /api/v1/sections`
 
 ```bash
@@ -425,6 +430,11 @@ curl -s -X POST http://127.0.0.1:8000/api/v1/sections \
 ### `PATCH /api/v1/sections/{id}`
 
 Уменьшение `capacity` ниже числа уже поданных заявок отклоняется (`section_capacity_below_load`).
+
+### `DELETE /api/v1/sections/{id}`
+
+Удаление секции. Вместе с секцией удаляются её заявки — внешний ключ объявлен с
+`ON DELETE CASCADE`. Ответ — `204 No Content`.
 
 ---
 
@@ -489,6 +499,11 @@ E-mail проверяется схемой и приводится к нижне
 ```bash
 curl -s "http://127.0.0.1:8000/api/v1/applications?conference_id=1&status=submitted"
 ```
+
+### `GET /api/v1/applications/{id}` — заявка по id
+
+Организатор видит любую заявку (право `application:read_all`). Учётная запись без этого права
+получает только свою заявку, обращение к чужой → `403 forbidden_not_owner`.
 
 ### `POST /api/v1/applications` — создать черновик
 
@@ -681,6 +696,11 @@ curl -s -X POST http://127.0.0.1:8000/api/v1/theses/1/review \
   "comment": null
 }
 ```
+
+### `GET /api/v1/hotel-bookings/{id}` — бронь по id
+
+Организатор видит любую бронь (право `hotel:manage`). Учётная запись без этого права получает
+только бронь по своей заявке, обращение к чужой → `403 forbidden_foreign_booking`.
 
 ### `POST /api/v1/hotel-bookings` — оформить потребность в гостинице
 
