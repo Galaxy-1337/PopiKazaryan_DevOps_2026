@@ -31,6 +31,42 @@ class ExpireResult(BaseModel):
     expired: Annotated[int, Field(ge=0)]
 
 
+class SectionLoadItem(BaseModel):
+    """Заполненность одной секции конференции.
+
+    Занятыми считаются заявки в статусах «подана» и «принята» — это ровно те
+    заявки, которые учитывает правило вместимости секции при приёме новой.
+    Отклонённые и отозванные заявки места не занимают.
+    """
+
+    section_id: int
+    title: str
+    is_open: bool
+    capacity: Annotated[int, Field(ge=1)]
+    submitted: Annotated[int, Field(ge=0)]
+    accepted: Annotated[int, Field(ge=0)]
+    taken: Annotated[int, Field(ge=0)]
+    free_seats: Annotated[int, Field(ge=0)]
+    load_percent: Annotated[float, Field(ge=0)]
+    is_full: bool
+
+
+class SectionsLoadOut(BaseModel):
+    """Сводка заполненности секций конференции.
+
+    Отчёт нужен программному комитету для планирования: видно, какие секции
+    заполнены, где есть свободные места и не переполнена ли секция после
+    изменения вместимости.
+    """
+
+    conference_id: int
+    sections_total: Annotated[int, Field(ge=0)]
+    capacity_total: Annotated[int, Field(ge=0)]
+    taken_total: Annotated[int, Field(ge=0)]
+    free_total: Annotated[int, Field(ge=0)]
+    items: list[SectionLoadItem]
+
+
 class MailingListEntry(BaseModel):
     """Одна организация в списке рассылки приглашений."""
 
@@ -58,4 +94,6 @@ __all__ = [
     "InvitationQueueOut",
     "MailingListEntry",
     "MailingListOut",
+    "SectionLoadItem",
+    "SectionsLoadOut",
 ]

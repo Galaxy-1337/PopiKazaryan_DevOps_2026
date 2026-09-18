@@ -297,7 +297,7 @@ DATABASE_URL=postgresql+psycopg2://conference:conference@127.0.0.1:5432/conferen
 - `GET|POST /api/v1/hotel-bookings`, `POST /api/v1/hotel-bookings/{id}/confirm`,
   `POST /api/v1/hotel-bookings/expire-stale`;
 - `GET /api/v1/reports/conference/{id}`, `GET /api/v1/reports/invitations-queue`,
-  `GET /api/v1/reports/mailing-list/{id}`.
+  `GET /api/v1/reports/mailing-list/{id}`, `GET /api/v1/reports/sections-load/{id}`.
 
 Единый формат ошибки:
 
