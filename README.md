@@ -268,13 +268,14 @@ DATABASE_URL=postgresql+psycopg2://conference:conference@127.0.0.1:5432/conferen
 - `GET|POST /api/v1/conferences`, `GET|PATCH|DELETE /api/v1/conferences/{id}`;
 - `GET|POST /api/v1/sections`, `GET|PATCH|DELETE /api/v1/sections/{id}`;
 - `GET|POST /api/v1/participants`, `GET|PATCH|DELETE /api/v1/participants/{id}`;
-- `GET|POST /api/v1/applications`, `PATCH|DELETE /api/v1/applications/{id}`,
+- `GET|POST /api/v1/applications`, `GET|PATCH|DELETE /api/v1/applications/{id}`,
   `POST /api/v1/applications/{id}/submit|decision|withdraw`;
 - `GET|POST /api/v1/invitations`, `POST /api/v1/invitations/{id}/send`;
 - `GET|POST /api/v1/fees`, `POST /api/v1/fees/{id}/pay|refund`;
-- `GET /api/v1/theses`, `POST /api/v1/applications/{id}/theses`, `POST /api/v1/theses/{id}/review`;
-- `GET|POST /api/v1/hotel-bookings`, `POST /api/v1/hotel-bookings/{id}/confirm`,
-  `POST /api/v1/hotel-bookings/expire-stale`;
+- `GET /api/v1/theses`, `GET /api/v1/theses/{id}`, `POST /api/v1/applications/{id}/theses`,
+  `POST /api/v1/theses/{id}/review`;
+- `GET|POST /api/v1/hotel-bookings`, `GET /api/v1/hotel-bookings/{id}`,
+  `POST /api/v1/hotel-bookings/{id}/confirm`, `POST /api/v1/hotel-bookings/expire-stale`;
 - `GET /api/v1/reports/conference/{id}`, `GET /api/v1/reports/invitations-queue`,
   `GET /api/v1/reports/mailing-list/{id}`, `GET /api/v1/reports/sections-load/{id}`.
 
