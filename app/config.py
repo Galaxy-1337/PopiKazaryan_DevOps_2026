@@ -63,6 +63,20 @@ class Settings(BaseSettings):
         return self.database_url.startswith("sqlite")
 
     @property
+    def effective_admin_password(self) -> str:
+        """Пароль организатора с учётом демонстрационного режима.
+
+        Если ``ADMIN_PASSWORD`` оставлен значением по умолчанию, используется
+        общий пароль демонстрационных учётных записей (``DEMO_PASSWORD``) —
+        так на защите достаточно помнить один пароль. Явно заданный
+        ``ADMIN_PASSWORD`` всегда имеет приоритет: это важно для эксплуатации,
+        тестов и автоматических проверок.
+        """
+        if self.admin_password != Settings.model_fields["admin_password"].default:
+            return self.admin_password
+        return self.demo_password or self.admin_password
+
+    @property
     def safe_database_url(self) -> str:
         """URL базы данных без пароля — для логов и служебных ответов."""
         url = self.database_url

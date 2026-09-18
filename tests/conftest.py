@@ -53,8 +53,14 @@ def _login(client: TestClient, credentials: tuple[str, str]) -> TestClient:
 
 @pytest.fixture(scope="session", autouse=True)
 def _prepare_database() -> Iterator[None]:
-    """Создать каталог данных и убрать файл тестовой БД после прогона."""
+    """Убрать тестовую базу до и после прогона.
+
+    Иначе в ней остаются учётные записи прошлых запусков со старым паролем, и
+    вход в тестах перестаёт работать.
+    """
     TEST_DB.parent.mkdir(parents=True, exist_ok=True)
+    if TEST_DB.exists():
+        TEST_DB.unlink()
     yield
     engine.dispose()
     if TEST_DB.exists():

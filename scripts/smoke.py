@@ -1,7 +1,13 @@
 """Smoke check: start the application and verify key endpoints.
 
-Used by ``make verify`` and by CI to make sure the application actually starts
-and answers requests, not only passes unit tests.
+The application requires authentication, so the check does three passes:
+
+* public endpoints must answer without a session;
+* protected endpoints must answer 401 without a session;
+* after login the protected endpoints must answer 200.
+
+Environment variables ``SMOKE_EMAIL`` and ``SMOKE_PASSWORD`` override the
+credentials used for the authenticated pass (defaults follow demo accounts).
 
 Console output is ASCII-only: Windows consoles decode program output using the
 system code page, so non-ASCII text would be displayed as garbage.
@@ -12,6 +18,8 @@ Run:
 
 from __future__ import annotations
 
+import json
+import os
 import socket
 import subprocess  # noqa: S404
 import sys
@@ -22,7 +30,35 @@ import urllib.request
 HOST = "127.0.0.1"
 PORT = 8137
 BASE = f"http://{HOST}:{PORT}"
-ENDPOINTS = ["/health", "/version", "/", "/openapi.json", "/api/v1/conferences"]
+
+# Endpoints that stay open without a session.
+PUBLIC_ENDPOINTS = ["/health", "/version", "/api/v1/auth/roles", "/login", "/openapi.json"]
+
+# Endpoints protected by authentication: 401 is expected without a session.
+PROTECTED_ENDPOINTS = ["/api/v1/conferences", "/api/v1/applications", "/api/v1/auth/me"]
+
+# Endpoints checked after signing in as the organizer.
+AUTHENTICATED_ENDPOINTS = ["/api/v1/conferences", "/api/v1/sections", "/api/v1/auth/me"]
+
+EMAIL = os.environ.get("SMOKE_EMAIL", "organizer@example.com")
+PASSWORD = os.environ.get("SMOKE_PASSWORD", "Conference2026")
+
+
+def _request(path: str, *, cookie: str | None = None, payload: dict | None = None) -> tuple[int, str]:
+    """Perform a request and return the status code and the Set-Cookie header."""
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = urllib.request.Request(  # noqa: S310 — адрес формируется внутри скрипта
+        f"{BASE}{path}", data=data, method="POST" if data else "GET"
+    )
+    if data is not None:
+        request.add_header("Content-Type", "application/json")
+    if cookie:
+        request.add_header("Cookie", cookie)
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:  # noqa: S310  # nosec B310
+            return response.status, response.headers.get("Set-Cookie", "")
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.headers.get("Set-Cookie", "")
 
 
 def _free_port(port: int) -> bool:
@@ -34,9 +70,9 @@ def _wait_until_ready(timeout: float = 40.0) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen(f"{BASE}/health", timeout=2) as response:  # noqa: S310
-                if response.status == 200:
-                    return True
+            status, _ = _request("/health")
+            if status == 200:
+                return True
         except (urllib.error.URLError, TimeoutError):
             time.sleep(0.7)
     return False
@@ -70,17 +106,36 @@ def main() -> int:
             print("FAIL: the application did not start within the time limit")
             return 1
 
-        for endpoint in ENDPOINTS:
-            url = f"{BASE}{endpoint}"
-            try:
-                with urllib.request.urlopen(url, timeout=5) as response:  # noqa: S310
-                    status = response.status
-            except urllib.error.HTTPError as exc:
-                status = exc.code
+        # 1. Open addresses
+        for endpoint in PUBLIC_ENDPOINTS:
+            status, _ = _request(endpoint)
             ok = status < 400
-            print(f"{'OK  ' if ok else 'FAIL'} {endpoint} -> HTTP {status}")
+            print(f"{'OK  ' if ok else 'FAIL'} {endpoint} (public) -> HTTP {status}")
             if not ok:
                 failures.append(endpoint)
+
+        # 2. Protected addresses without a session
+        for endpoint in PROTECTED_ENDPOINTS:
+            status, _ = _request(endpoint)
+            ok = status == 401
+            print(f"{'OK  ' if ok else 'FAIL'} {endpoint} (no session) -> HTTP {status} (expected 401)")
+            if not ok:
+                failures.append(endpoint)
+
+        # 3. Sign in and repeat the protected addresses with the session
+        status, set_cookie = _request("/api/v1/auth/login", payload={"email": EMAIL, "password": PASSWORD})
+        if status != 200:
+            print(f"FAIL /api/v1/auth/login -> HTTP {status} (check SMOKE_EMAIL / SMOKE_PASSWORD)")
+            failures.append("/api/v1/auth/login")
+        else:
+            print(f"OK   /api/v1/auth/login -> HTTP {status}")
+            cookie = set_cookie.split(";")[0]
+            for endpoint in AUTHENTICATED_ENDPOINTS:
+                endpoint_status, _ = _request(endpoint, cookie=cookie)
+                ok = endpoint_status == 200
+                print(f"{'OK  ' if ok else 'FAIL'} {endpoint} (session) -> HTTP {endpoint_status}")
+                if not ok:
+                    failures.append(endpoint)
     finally:
         process.terminate()
         try:

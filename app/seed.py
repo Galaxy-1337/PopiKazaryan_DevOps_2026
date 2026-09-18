@@ -184,7 +184,7 @@ def _ensure_admin_user(db, settings, email: str) -> None:  # noqa: ANN001
         .where(models.Participant.email == email)
     ).scalar_one_or_none()
 
-    password = settings.demo_password or settings.admin_password
+    password = settings.effective_admin_password
 
     existing = auth.find_user(db, email)
     if existing is not None:
