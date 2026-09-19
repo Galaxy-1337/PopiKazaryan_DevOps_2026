@@ -133,6 +133,13 @@ def create_app() -> FastAPI:
         request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
+        # Локальный запуск и контейнеры используют один и тот же адрес, поэтому
+        # страница и скрипты не должны браться из кэша браузера: иначе после
+        # переключения режима в браузере остаётся прежняя версия интерфейса.
+        if request.url.path.startswith("/static"):
+            response.headers["Cache-Control"] = "no-cache"
+        elif "text/html" in response.headers.get("content-type", ""):
+            response.headers["Cache-Control"] = "no-store"
         return response
 
     # --- Статика и веб-интерфейс --------------------------------------

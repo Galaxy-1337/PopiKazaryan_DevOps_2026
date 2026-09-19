@@ -92,6 +92,15 @@ switch ($Command) {
     }
 
     'run' {
+        $busy = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+        if ($busy) {
+            Write-Host "[run] Port $Port is already in use." -ForegroundColor Red
+            Write-Host "      Another mode is probably running. Stop it first:" -ForegroundColor Yellow
+            Write-Host "        containers: docker compose down" -ForegroundColor Yellow
+            Write-Host "        local run:  Ctrl+C in its window" -ForegroundColor Yellow
+            Write-Host "      Or start on a free port: .\scripts\dev.ps1 run -Port 8010" -ForegroundColor Yellow
+            throw "Port $Port is busy"
+        }
         Write-Host "[run] http://${BindHost}:$Port" -ForegroundColor Cyan
         Invoke-Py -m uvicorn app.main:app --host $BindHost --port $Port --reload
     }

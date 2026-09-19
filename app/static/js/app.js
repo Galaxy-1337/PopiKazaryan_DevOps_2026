@@ -23,12 +23,31 @@ function element(id) {
 /* ------------------------------------------------------------------ */
 /* Вспомогательные функции                                            */
 /* ------------------------------------------------------------------ */
+const REQUEST_TIMEOUT_MS = 15000;
+
 async function api(path, options = {}) {
-  const response = await fetch(`${API}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'same-origin',
-    ...options,
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let response;
+  try {
+    response = await fetch(`${API}${path}`, {
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      signal: controller.signal,
+      ...options,
+    });
+  } catch (failure) {
+    const error = new Error(
+      failure.name === 'AbortError'
+        ? `сервер не ответил за ${REQUEST_TIMEOUT_MS / 1000} секунд`
+        : 'нет связи с сервером',
+    );
+    error.code = 'no_connection';
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (response.status === 401) {
     window.location.href = '/login';
@@ -36,7 +55,14 @@ async function api(path, options = {}) {
   }
 
   const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    const error = new Error(`некорректный ответ сервера (HTTP ${response.status})`);
+    error.code = 'bad_response';
+    throw error;
+  }
   if (!response.ok) {
     const error = new Error(data?.error?.message || `HTTP ${response.status}`);
     error.code = data?.error?.code || 'unknown_error';
@@ -44,6 +70,34 @@ async function api(path, options = {}) {
     throw error;
   }
   return data;
+}
+
+/* Текст ошибки для показа пользователю. */
+function describeError(error) {
+  return error?.code ? `${error.code}: ${error.message}` : String(error?.message || error);
+}
+
+/* Показать причину сбоя прямо в таблице.
+   Без этого незагруженный список выглядит как «данных нет», и причину
+   невозможно понять без консоли браузера. */
+function showLoadFailure(tbodyId, error) {
+  const body = element(tbodyId);
+  if (!body) return;
+  body.innerHTML =
+    `<tr><td colspan="20" class="empty">Не удалось загрузить данные — ${esc(describeError(error))}. ` +
+    'Проверьте, что приложение запущено, и нажмите «Обновить».</td></tr>';
+}
+
+/* Обёртка загрузчика: ошибка попадает и в таблицу, и во всплывающее сообщение. */
+function guardTable(tbodyId, loader) {
+  return async (...args) => {
+    try {
+      await loader(...args);
+    } catch (error) {
+      showLoadFailure(tbodyId, error);
+      throw error;
+    }
+  };
 }
 
 function toast(message, isError = false) {
@@ -91,12 +145,12 @@ const THESIS_STATUS = {
 /* ------------------------------------------------------------------ */
 const panelLoaders = {
   dashboard: () => loadReport(),
-  applications: () => loadApplications(),
-  finance: () => loadFees(),
-  invitations: () => loadInvitations(),
-  hotel: () => loadHotel(),
-  participants: () => loadParticipants(),
-  theses: () => loadTheses(),
+  applications: guardTable('apps-body', loadApplications),
+  finance: guardTable('fees-body', loadFees),
+  invitations: guardTable('inv-body', loadInvitations),
+  hotel: guardTable('hotel-body', loadHotel),
+  participants: guardTable('participants-body', loadParticipants),
+  theses: guardTable('theses-body', loadTheses),
 };
 
 document.querySelectorAll('.tab').forEach((tab) => {
@@ -583,19 +637,19 @@ function bindChange(id, handler) {
 
 bind('report-refresh', loadReport);
 bindChange('report-conference', loadReport);
-bind('apps-refresh', loadApplications);
-bindChange('app-status-filter', loadApplications);
-bind('fees-refresh', loadFees);
-bindChange('fee-status-filter', loadFees);
-bind('inv-refresh', loadInvitations);
-bindChange('inv-status-filter', loadInvitations);
-bind('hotel-refresh', loadHotel);
-bindChange('hotel-status-filter', loadHotel);
-bind('participants-refresh', loadParticipants);
-bind('theses-refresh', loadTheses);
+bind('apps-refresh', guardTable('apps-body', loadApplications));
+bindChange('app-status-filter', guardTable('apps-body', loadApplications));
+bind('fees-refresh', guardTable('fees-body', loadFees));
+bindChange('fee-status-filter', guardTable('fees-body', loadFees));
+bind('inv-refresh', guardTable('inv-body', loadInvitations));
+bindChange('inv-status-filter', guardTable('inv-body', loadInvitations));
+bind('hotel-refresh', guardTable('hotel-body', loadHotel));
+bindChange('hotel-status-filter', guardTable('hotel-body', loadHotel));
+bind('participants-refresh', guardTable('participants-body', loadParticipants));
+bind('theses-refresh', guardTable('theses-body', loadTheses));
 
 element('participant-search')?.addEventListener('input', () => {
-  loadParticipants().catch(() => {});
+  guardTable('participants-body', loadParticipants)().catch(() => {});
 });
 
 /* ------------------------------------------------------------------ */
