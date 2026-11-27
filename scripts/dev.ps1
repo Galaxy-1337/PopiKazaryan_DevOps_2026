@@ -68,7 +68,7 @@ function Show-Help {
     Write-Host '  up               Start containers (app + PostgreSQL)'
     Write-Host '  down             Stop containers'
     Write-Host '  logs             Follow container logs'
-    Write-Host '  container-check  Check container health via /health'
+    Write-Host '  container-check  Check container readiness via /internal/health'
     Write-Host '  version          Print application version'
     Write-Host '  clean            Remove caches and virtual environment'
     Write-Host ''
