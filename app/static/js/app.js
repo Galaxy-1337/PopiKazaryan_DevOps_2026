@@ -1,16 +1,18 @@
 /* Веб-интерфейс «Конференция»: работа с API из браузера.
-   Разделы и действия ограничены ролью текущего пользователя: права переданы
-   сервером в data-атрибутах тега body. */
+   Разделы и действия ограничены ролью текущего пользователя: роль и права
+   переданы сервером в data-атрибутах тега body. Сервер, в свою очередь,
+   проверяет права на каждом запросе, поэтому интерфейс — только удобство,
+   а не защита. */
 'use strict';
 
 const API = '/api/v1';
 const state = { conferences: [], sections: [], participants: [] };
 
-/* Права текущего пользователя (заданы сервером при отрисовке страницы). */
+/* Роль текущего пользователя (задана сервером при отрисовке страницы). */
+const IS_ADMIN = document.body.dataset.admin === 'true';
 const PERMISSIONS = new Set(
   (document.body.dataset.permissions || '').split(',').map((item) => item.trim()).filter(Boolean),
 );
-const PARTICIPANT_ID = document.body.dataset.participantId || '';
 
 function can(permission) {
   return PERMISSIONS.has(permission);
@@ -36,12 +38,18 @@ async function api(path, options = {}) {
   }
 
   const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch (error) {
+    data = null;
+  }
   if (!response.ok) {
-    const error = new Error(data?.error?.message || `HTTP ${response.status}`);
-    error.code = data?.error?.code || 'unknown_error';
-    error.details = data?.error?.details;
-    throw error;
+    const message = data?.error?.message || `HTTP ${response.status}`;
+    const failure = new Error(message);
+    failure.code = data?.error?.code || 'unknown_error';
+    failure.details = data?.error?.details;
+    throw failure;
   }
   return data;
 }
@@ -86,6 +94,13 @@ const THESIS_STATUS = {
   accepted: 'приняты', revision: 'на доработку', rejected: 'отклонены',
 };
 
+/* Число колонок в таблицах: у администратора и участника набор столбцов разный. */
+const APP_COLUMNS = IS_ADMIN ? 8 : 7;
+const FEE_COLUMNS = 7;
+const HOTEL_COLUMNS = 9;
+const THESIS_COLUMNS = 7;
+const PARTICIPANT_COLUMNS = 5;
+
 /* ------------------------------------------------------------------ */
 /* Навигация                                                          */
 /* ------------------------------------------------------------------ */
@@ -114,13 +129,15 @@ document.querySelectorAll('.tab').forEach((tab) => {
 });
 
 /* ------------------------------------------------------------------ */
-/* Служебный адрес проверки работоспособности                         */
+/* Служебный адрес проверки работоспособности (только администратор)   */
 /* ------------------------------------------------------------------ */
 async function loadHealth() {
   const box = element('health');
   if (!box) return;
   try {
-    const response = await fetch('/health');
+    // /health закрыт для участника, поэтому вызывается только у администратора.
+    const response = await fetch('/health', { credentials: 'same-origin' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     box.textContent = `v${data.version} · БД: ${data.database} · ${data.app_env}`;
     box.className = `status ${data.status === 'ok' ? 'ok' : 'bad'}`;
@@ -131,7 +148,7 @@ async function loadHealth() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Сводка (только организатор)                                        */
+/* Сводка (только администратор)                                      */
 /* ------------------------------------------------------------------ */
 async function loadReport() {
   const block = element('report-cards');
@@ -180,7 +197,7 @@ async function loadReport() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Справочники для формы заявки                                       */
+/* Справочники для формы заявки (форма есть только у участника)       */
 /* ------------------------------------------------------------------ */
 function fillSelect(elementId, items, labelOf, emptyLabel) {
   const select = element(elementId);
@@ -202,41 +219,16 @@ async function loadDictionaries() {
   }
   state.sections = (await api('/sections?limit=200')).items;
 
-  // Список участников нужен только организатору: остальные подают заявку от себя.
-  if (can('participant:manage')) {
-    state.participants = (await api('/participants?limit=200')).items;
-  }
-
   const hasSections = fillSelect(
     'app-section',
     state.sections,
     (s) => `${s.title} (свободно ${s.free_seats})`,
-    'Нет секций — создайте конференцию с секциями',
+    'Нет секций — обратитесь к администратору',
   );
-  const hasParticipants = can('participant:manage')
-    ? fillSelect(
-        'app-participant',
-        state.participants,
-        (p) => `${p.full_name} — ${p.email}`,
-        'Нет участников — добавьте участника',
-      )
-    : true;
 
-  const note = element('dict-warning');
-  if (!note) return;
-  if (hasSections && hasParticipants) {
-    note.hidden = true;
-    note.textContent = '';
-    return;
+  if (!hasSections) {
+    toast('Нет ни одной секции: заявку создать нельзя', true);
   }
-  const missing = [!hasSections ? 'секции' : null, !hasParticipants ? 'участники' : null]
-    .filter(Boolean).join(' и ');
-  note.hidden = false;
-  note.textContent =
-    `Заявку создать нельзя: в базе нет данных (${missing}). `
-    + 'Если база пуста, остановите сервер, удалите файл data/conference.db и запустите '
-    + 'приложение снова — демонстрационные данные создадутся автоматически.';
-  toast(`Нет данных для выбора: ${missing}`, true);
 }
 
 /* ------------------------------------------------------------------ */
@@ -249,48 +241,54 @@ async function loadApplications() {
   const body = element('apps-body');
 
   if (!data.items.length) {
-    const empty = can('report:read') ? 'Заявок нет' : 'У вас пока нет заявок';
-    body.innerHTML = `<tr><td colspan="8" class="empty">${empty}</td></tr>`;
+    const empty = IS_ADMIN ? 'Заявок нет' : 'У вас пока нет заявок';
+    body.innerHTML = `<tr><td colspan="${APP_COLUMNS}" class="empty">${empty}</td></tr>`;
     return;
   }
 
-  const name = (id) => esc(
-    state.participants.find((p) => p.id === id)?.full_name || `участник #${id}`);
   const section = (id) => esc(
     state.sections.find((s) => s.id === id)?.title || `секция #${id}`);
+  const name = (id) => esc(
+    state.participants.find((p) => p.id === id)?.full_name || `участник #${id}`);
 
   body.innerHTML = data.items.map((a) => {
-    const own = String(a.participant_id) === String(PARTICIPANT_ID);
-    const mine = own || can('application:decide');
+    // Участнику сервер отдаёт только заявки, поданные из его учётной записи,
+    // поэтому все строки в его списке — «свои».
+    const own = !IS_ADMIN;
     const actions = [];
-    if (can('application:create') && mine) {
+
+    if (IS_ADMIN) {
+      // Администратор только решает судьбу поданной заявки.
+      if (a.status === 'submitted') {
+        actions.push(`<button class="small ok" data-act="accept" data-id="${a.id}">Принять</button>`);
+        actions.push(`<button class="small danger" data-act="reject" data-id="${a.id}">Отклонить</button>`);
+      }
+    } else if (own) {
+      // Участник распоряжается только своим черновиком.
       if (a.status === 'draft') {
         actions.push(`<button class="small ok" data-act="submit" data-id="${a.id}">Подать</button>`);
       }
-      if (a.status === 'draft' || a.status === 'submitted' || a.status === 'accepted') {
+      if (['draft', 'submitted', 'accepted'].includes(a.status)) {
         actions.push(`<button class="small" data-act="withdraw" data-id="${a.id}">Отозвать</button>`);
       }
+      if (a.status === 'accepted') {
+        actions.push(`<button class="small" data-act="thesis" data-id="${a.id}">Тезисы</button>`);
+        actions.push(`<button class="small" data-act="hotel" data-id="${a.id}">Гостиница</button>`);
+      }
     }
-    if (can('application:decide') && a.status === 'submitted') {
-      actions.push(`<button class="small ok" data-act="accept" data-id="${a.id}">Принять</button>`);
-      actions.push(`<button class="small danger" data-act="reject" data-id="${a.id}">Отклонить</button>`);
-    }
-    if (can('thesis:submit_own') && a.status === 'accepted' && mine) {
-      actions.push(`<button class="small" data-act="thesis" data-id="${a.id}">Тезисы</button>`);
-    }
-    if (can('hotel:request_own') && a.status === 'accepted' && mine) {
-      actions.push(`<button class="small" data-act="hotel" data-id="${a.id}">Гостиница</button>`);
-    }
-    return `<tr>
-      <td>${a.id}</td>
-      <td>${esc(a.topic)}</td>
-      <td>${name(a.participant_id)}</td>
-      <td>${section(a.section_id)}</td>
-      <td>${a.format}</td>
-      <td>${badge(a.status, APP_STATUS)}</td>
-      <td>${a.needs_hotel ? 'да' : 'нет'}</td>
-      <td><div class="actions">${actions.join('') || '—'}</div></td>
-    </tr>`;
+
+    const cells = [
+      a.id,
+      esc(a.topic),
+      IS_ADMIN ? name(a.participant_id) : null,
+      section(a.section_id),
+      a.format,
+      badge(a.status, APP_STATUS),
+      a.needs_hotel ? 'да' : 'нет',
+      `<div class="actions">${actions.join('') || '—'}</div>`,
+    ].filter((cell) => cell !== null);
+
+    return `<tr>${cells.map((cell) => `<td>${cell}</td>`).join('')}</tr>`;
   }).join('');
 }
 
@@ -303,17 +301,23 @@ async function loadFees() {
   const data = await api(`/fees?limit=100${query}`);
   const body = element('fees-body');
   if (!data.items.length) {
-    const empty = can('fee:manage') ? 'Оргвзносов нет' : 'Начислений по вашим заявкам нет';
-    body.innerHTML = `<tr><td colspan="7" class="empty">${empty}</td></tr>`;
+    const empty = IS_ADMIN ? 'Оргвзносов нет' : 'Начислений по вашим заявкам нет';
+    body.innerHTML = `<tr><td colspan="${FEE_COLUMNS}" class="empty">${empty}</td></tr>`;
     return;
   }
   body.innerHTML = data.items.map((f) => {
     const actions = [];
-    if (f.status === 'pending' && (can('fee:pay_own') || can('fee:manage'))) {
-      actions.push(`<button class="small ok" data-act="pay" data-id="${f.id}">Оплатить</button>`);
-    }
-    if (f.status === 'paid' && can('fee:manage')) {
-      actions.push(`<button class="small danger" data-act="refund" data-id="${f.id}">Вернуть</button>`);
+    // Администратор оргвзносы только наблюдает: действий ему не предлагается.
+    // Платит и возвращает взнос участник — по своей заявке.
+    if (!IS_ADMIN) {
+      if (f.status === 'pending' && can('fee:pay_own')) {
+        actions.push(`<button class="small ok" data-act="pay" data-id="${f.id}">Оплатить</button>`);
+      }
+      // Возврат возможен только по своей отозванной или отклонённой заявке —
+      // это правило предметной области.
+      if (f.status === 'paid' && ['withdrawn', 'rejected'].includes(f.application_status)) {
+        actions.push(`<button class="small danger" data-act="refund" data-id="${f.id}">Вернуть</button>`);
+      }
     }
     return `<tr>
       <td>${f.id}</td><td>${f.application_id}</td>
@@ -326,23 +330,21 @@ async function loadFees() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Приглашения                                                        */
+/* Приглашения (только администратор)                                 */
 /* ------------------------------------------------------------------ */
 async function loadInvitations() {
+  const body = element('inv-body');
+  if (!body) return;
   const status = element('inv-status-filter').value;
   const query = status ? `&status=${status}` : '';
   const data = await api(`/invitations?limit=100${query}`);
-  const body = element('inv-body');
   if (!data.items.length) {
-    const empty = can('invitation:manage')
-      ? 'Приглашений нет'
-      : 'Вам ещё не направляли приглашений';
-    body.innerHTML = `<tr><td colspan="6" class="empty">${empty}</td></tr>`;
+    body.innerHTML = '<tr><td colspan="6" class="empty">Приглашений нет</td></tr>';
     return;
   }
   body.innerHTML = data.items.map((i) => {
     let actions = '—';
-    if (can('invitation:manage') && (i.status === 'queued' || i.status === 'failed')) {
+    if (i.status === 'queued' || i.status === 'failed') {
       actions = `<button class="small ok" data-act="send" data-id="${i.id}">Отправить</button>
                  <button class="small danger" data-act="send-fail" data-id="${i.id}">Ошибка</button>`;
     }
@@ -363,14 +365,17 @@ async function loadHotel() {
   const data = await api(`/hotel-bookings?limit=100${query}`);
   const body = element('hotel-body');
   if (!data.items.length) {
-    const empty = can('hotel:manage') ? 'Броней нет' : 'Броней по вашим заявкам нет';
-    body.innerHTML = `<tr><td colspan="9" class="empty">${empty}</td></tr>`;
+    const empty = IS_ADMIN ? 'Броней нет' : 'Запросов гостиницы по вашим заявкам нет';
+    body.innerHTML = `<tr><td colspan="${HOTEL_COLUMNS}" class="empty">${empty}</td></tr>`;
     return;
   }
   body.innerHTML = data.items.map((b) => {
-    const actions = (b.status === 'requested' && can('hotel:manage'))
-      ? `<button class="small ok" data-act="confirm" data-id="${b.id}">Подтвердить</button>`
-      : '—';
+    let actions = '—';
+    // Участник только наблюдает: статус меняет администратор.
+    if (IS_ADMIN && b.status === 'requested') {
+      actions = `<button class="small ok" data-act="confirm" data-id="${b.id}">Подтвердить</button>
+                 <button class="small danger" data-act="reject-hotel" data-id="${b.id}">Отклонить</button>`;
+    }
     return `<tr>
       <td>${b.id}</td><td>${b.application_id}</td><td>${esc(b.hotel_name)}</td>
       <td>${b.check_in}</td><td>${b.check_out}</td><td>${b.nights}</td><td>${b.guests_count}</td>
@@ -381,21 +386,21 @@ async function loadHotel() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Участники (только организатор)                                     */
+/* Участники (только администратор)                                   */
 /* ------------------------------------------------------------------ */
 async function loadParticipants() {
+  const body = element('participants-body');
+  if (!body) return;
   const search = element('participant-search')?.value || '';
   const query = search ? `&search=${encodeURIComponent(search)}` : '';
   const data = await api(`/participants?limit=200${query}`);
-  const body = element('participants-body');
-  if (!body) return;
   if (!data.items.length) {
-    body.innerHTML = '<tr><td colspan="6" class="empty">Участников не найдено</td></tr>';
+    body.innerHTML = `<tr><td colspan="${PARTICIPANT_COLUMNS}" class="empty">Участников не найдено</td></tr>`;
     return;
   }
   body.innerHTML = data.items.map((p) => `<tr>
       <td>${p.id}</td><td>${esc(p.full_name)}</td><td>${esc(p.email)}</td>
-      <td>${esc(p.organization || '—')}</td><td>${esc(p.city || '—')}</td><td>${p.role}</td>
+      <td>${esc(p.organization || '—')}</td><td>${esc(p.city || '—')}</td>
     </tr>`).join('');
 }
 
@@ -406,13 +411,14 @@ async function loadTheses() {
   const data = await api('/theses?limit=100');
   const body = element('theses-body');
   if (!data.items.length) {
-    const empty = can('thesis:review') ? 'Тезисов на рецензию нет' : 'Вы ещё не подавали тезисов';
-    body.innerHTML = `<tr><td colspan="7" class="empty">${empty}</td></tr>`;
+    const empty = IS_ADMIN ? 'Тезисов на оценивание нет' : 'Вы ещё не подавали тезисов';
+    body.innerHTML = `<tr><td colspan="${THESIS_COLUMNS}" class="empty">${empty}</td></tr>`;
     return;
   }
   body.innerHTML = data.items.map((t) => {
     let actions = '—';
-    if (can('thesis:review') && ['submitted', 'under_review', 'revision'].includes(t.status)) {
+    // Оценку выставляет только администратор.
+    if (IS_ADMIN && ['submitted', 'under_review', 'revision'].includes(t.status)) {
       actions = `<button class="small ok" data-act="review-ok" data-id="${t.id}">Принять (8)</button>
                  <button class="small danger" data-act="review-bad" data-id="${t.id}">Отклонить (4)</button>`;
     }
@@ -455,7 +461,7 @@ document.addEventListener('click', async (event) => {
     }
     if (act === 'refund') {
       await api(`/fees/${id}/refund`, {
-        method: 'POST', body: JSON.stringify({ reason: 'Участник отказался от участия' }),
+        method: 'POST', body: JSON.stringify({ reason: 'Заявка отозвана или отклонена' }),
       });
     }
     if (act === 'send') await api(`/invitations/${id}/send?success=true`, { method: 'POST' });
@@ -463,11 +469,16 @@ document.addEventListener('click', async (event) => {
       await api(`/invitations/${id}/send?success=false&error=SMTP%20timeout`, { method: 'POST' });
     }
     if (act === 'confirm') await api(`/hotel-bookings/${id}/confirm`, { method: 'POST' });
+    if (act === 'reject-hotel') {
+      await api(`/hotel-bookings/${id}/reject`, {
+        method: 'POST', body: JSON.stringify({ reason: 'Нет свободных мест в гостинице' }),
+      });
+    }
     if (act === 'review-ok') {
       await api(`/theses/${id}/review`, {
         method: 'POST',
         body: JSON.stringify({
-          reviewer_name: 'Кузнецова О. Д.', score: 8, accepted: true,
+          reviewer_name: 'Администратор', score: 8, accepted: true,
           comment: 'Тезисы соответствуют требованиям',
         }),
       });
@@ -476,7 +487,7 @@ document.addEventListener('click', async (event) => {
       await api(`/theses/${id}/review`, {
         method: 'POST',
         body: JSON.stringify({
-          reviewer_name: 'Кузнецова О. Д.', score: 4, accepted: false,
+          reviewer_name: 'Администратор', score: 4, accepted: false,
           comment: 'Недостаточная проработка',
         }),
       });
@@ -511,7 +522,7 @@ document.addEventListener('click', async (event) => {
           check_out: conference.ends_on,
         }),
       });
-      toast(`Создана бронь №${booking.id}, срок подтверждения ${booking.confirmation_deadline}`);
+      toast(`Создан запрос №${booking.id}, срок подтверждения ${booking.confirmation_deadline}`);
     }
 
     toast('Операция выполнена');
@@ -528,7 +539,7 @@ document.addEventListener('click', async (event) => {
 });
 
 /* ------------------------------------------------------------------ */
-/* Форма создания заявки                                              */
+/* Форма создания заявки (только участник)                            */
 /* ------------------------------------------------------------------ */
 element('app-create-toggle')?.addEventListener('click', () => {
   const form = element('app-create-form');
@@ -541,6 +552,8 @@ element('app-create-form')?.addEventListener('submit', async (event) => {
     if (!state.conferences.length) {
       state.conferences = (await api('/conferences?limit=200')).items;
     }
+    // Участник указывает свои ФИО и почту сам — они сохраняются в профиле.
+    // Чужого участника подставить нельзя: сервер берёт его из сессии.
     const payload = {
       conference_id: state.conferences[0].id,
       section_id: Number(element('app-section').value),
@@ -548,17 +561,19 @@ element('app-create-form')?.addEventListener('submit', async (event) => {
       annotation: element('app-annotation').value || null,
       format: element('app-format').value,
       needs_hotel: element('app-hotel').checked,
-      // Организатор выбирает участника, остальные подают заявку от своего имени.
-      participant_id: can('participant:manage')
-        ? Number(element('app-participant').value)
-        : Number(PARTICIPANT_ID),
+      full_name: element('app-full-name').value,
+      email: element('app-email').value,
+      organization: element('app-organization').value || null,
+      city: element('app-city').value || null,
     };
 
     const application = await api('/applications', {
       method: 'POST', body: JSON.stringify(payload),
     });
-    toast(`Создана заявка №${application.id} (черновик)`);
-    event.target.reset();
+    toast(`Создан черновик заявки №${application.id}: подайте его или отзовите`);
+    element('app-topic').value = '';
+    element('app-annotation').value = '';
+    element('app-hotel').checked = false;
     await loadApplications();
     await loadDictionaries();
   } catch (error) {
@@ -571,7 +586,11 @@ element('app-create-form')?.addEventListener('submit', async (event) => {
 /* ------------------------------------------------------------------ */
 function bind(id, handler) {
   element(id)?.addEventListener('click', () => {
-    Promise.resolve(handler()).catch((error) => toast(`${error.code}: ${error.message}`, true));
+    // Кнопки «Обновить» перезапрашивают данные. Короткое сообщение показывает,
+    // что нажатие сработало: иначе при неизменных данных кнопка выглядит мёртвой.
+    Promise.resolve(handler())
+      .then(() => toast('Данные обновлены'))
+      .catch((error) => toast(`${error.code}: ${error.message}`, true));
   });
 }
 
@@ -602,12 +621,12 @@ element('participant-search')?.addEventListener('input', () => {
 /* Старт                                                              */
 /* ------------------------------------------------------------------ */
 (async function init() {
-  loadHealth();
-  const firstTab = document.querySelector('.tab.is-active')?.dataset.tab || 'dashboard';
+  if (IS_ADMIN) loadHealth();
+  const firstTab = document.querySelector('.tab.is-active')?.dataset.tab || 'applications';
   const loader = panelLoaders[firstTab];
   try {
     if (loader) await loader();
-    if (can('application:create')) await loadDictionaries();
+    if (!IS_ADMIN) await loadDictionaries();
   } catch (error) {
     toast(`${error.code || 'error'}: ${error.message}`, true);
   }

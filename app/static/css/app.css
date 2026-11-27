@@ -12,6 +12,12 @@
   --err: #dc2626;
 }
 
+/* Атрибут hidden обязан скрывать элемент всегда. У некоторых классов задан
+   display (grid/flex), и без этого правила он перебивал бы стиль браузера,
+   из-за чего скрытые блоки оставались видимыми, а кнопки-переключатели
+   выглядели неработающими. */
+[hidden] { display: none !important; }
+
 /* --- Шапка: сведения о пользователе и его роли --- */
 .user-box {
   display: flex;
@@ -22,6 +28,9 @@
   border-radius: 999px;
   font-size: 13px;
   color: #e2e8f0;
+  /* Блок пользователя не сжимается и не переносится: его прижимает к правому
+     краю автоматический отступ у списка вкладок. */
+  flex: 0 0 auto;
 }
 .user-name { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .role-badge {
@@ -93,17 +102,18 @@ body {
 .topbar {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 16px;
   padding: 12px 24px;
   background: var(--bg);
   color: #f8fafc;
-  flex-wrap: wrap;
+  /* Шапка всегда в одну строку: вкладки не переносятся на вторую строку. */
+  flex-wrap: nowrap;
   position: sticky;
   top: 0;
   z-index: 10;
 }
 
-.brand { display: flex; align-items: center; gap: 12px; }
+.brand { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
 .brand small { display: block; color: #94a3b8; font-size: 12px; }
 .logo {
   display: grid;
@@ -114,22 +124,48 @@ body {
   font-weight: 700; font-size: 18px;
 }
 
-.nav { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+/* Вкладки занимают свободное место и остаются в одну строку: если места
+   не хватает, они прокручиваются по горизонтали, а не переносятся. */
+.nav {
+  display: flex;
+  gap: 6px;
+  flex-wrap: nowrap;
+  margin-left: auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.nav::-webkit-scrollbar { display: none; }
 .tab {
   background: transparent;
   border: 1px solid #334155;
   color: #cbd5e1;
-  padding: 7px 14px;
+  padding: 7px 12px;
   border-radius: 999px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13.5px;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .tab:hover { background: var(--bg-soft); }
 .tab.is-active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
-.status { font-size: 13px; color: #94a3b8; }
+.status { font-size: 13px; color: #94a3b8; flex: 0 0 auto; white-space: nowrap; }
 .status.ok { color: #4ade80; }
 .status.bad { color: #f87171; }
+
+/* У администратора семь вкладок, поэтому на узких экранах убираем декоративный
+   подзаголовок и укорачиваем имя: так вся шапка остаётся в одну строку без
+   прокрутки. У участника вкладок меньше, и он выглядит как прежде. */
+@media (max-width: 1560px) {
+  body[data-admin='true'] .brand small { display: none; }
+  body[data-admin='true'] .user-name { max-width: 170px; }
+  body[data-admin='true'] .topbar { gap: 12px; }
+}
+@media (max-width: 1200px) {
+  .tab { padding: 6px 9px; font-size: 13px; }
+  .user-name { max-width: 120px; }
+}
 
 main { max-width: 1240px; margin: 24px auto; padding: 0 20px; }
 
@@ -187,17 +223,6 @@ button.ok { color: var(--ok); border-color: #bbf7d0; }
   gap: 12px;
 }
 .card-form h3 { margin: 0; font-size: 16px; }
-
-.notice {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid #fecaca;
-  background: #fef2f2;
-  color: #991b1b;
-  font-size: 13px;
-  line-height: 1.5;
-}
 
 table.data { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(15,23,42,.06); }
 table.data th, table.data td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); font-size: 14px; vertical-align: top; }
