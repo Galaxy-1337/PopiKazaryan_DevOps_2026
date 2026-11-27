@@ -1,6 +1,7 @@
 """Маршруты конференций и секций.
 
-Доступ: чтение — любой вошедший пользователь, изменение — только организатор.
+Доступ: чтение — любой вошедший пользователь (справочники нужны форме заявки),
+изменение — только администратор.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ router = APIRouter(prefix="/api/v1", tags=["conferences"])
 # У каждой роли есть хотя бы одно право, поэтому такая зависимость означает
 # «пользователь вошёл в систему».
 require_authenticated = auth.require_authenticated
-require_organizer = auth.require_permission("conference:manage")
+require_conference_manage = auth.require_permission("conference:manage")
 require_section_manage = auth.require_permission("section:manage")
 
 
@@ -48,12 +49,12 @@ def list_conferences(
     "/conferences",
     response_model=schemas.ConferenceOut,
     status_code=status.HTTP_201_CREATED,
-    summary="Создать конференцию (только организатор)",
+    summary="Создать конференцию (только администратор)",
 )
 def create_conference(
     payload: schemas.ConferenceCreate,
     db: Session = Depends(get_db),
-    _user: models.User = Depends(require_organizer),
+    _user: models.User = Depends(require_conference_manage),
 ) -> models.Conference:
     exists = db.execute(
         select(models.Conference).where(models.Conference.slug == payload.slug)
@@ -87,13 +88,13 @@ def get_conference(
 @router.patch(
     "/conferences/{conference_id}",
     response_model=schemas.ConferenceOut,
-    summary="Изменить конференцию (только организатор)",
+    summary="Изменить конференцию (только администратор)",
 )
 def update_conference(
     conference_id: int,
     payload: schemas.ConferenceUpdate,
     db: Session = Depends(get_db),
-    _user: models.User = Depends(require_organizer),
+    _user: models.User = Depends(require_conference_manage),
 ) -> models.Conference:
     conference = db.get(models.Conference, conference_id)
     if conference is None:
@@ -118,12 +119,12 @@ def update_conference(
 @router.delete(
     "/conferences/{conference_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Удалить конференцию (только организатор)",
+    summary="Удалить конференцию (только администратор)",
 )
 def delete_conference(
     conference_id: int,
     db: Session = Depends(get_db),
-    _user: models.User = Depends(require_organizer),
+    _user: models.User = Depends(require_conference_manage),
 ) -> None:
     conference = db.get(models.Conference, conference_id)
     if conference is None:
@@ -169,7 +170,7 @@ def list_sections(
     "/sections",
     response_model=schemas.SectionOut,
     status_code=status.HTTP_201_CREATED,
-    summary="Создать секцию (только организатор)",
+    summary="Создать секцию (только администратор)",
 )
 def create_section(
     payload: schemas.SectionCreate,
@@ -215,7 +216,7 @@ def get_section(
 @router.patch(
     "/sections/{section_id}",
     response_model=schemas.SectionOut,
-    summary="Изменить секцию (только организатор)",
+    summary="Изменить секцию (только администратор)",
 )
 def update_section(
     section_id: int,
@@ -245,7 +246,7 @@ def update_section(
 @router.delete(
     "/sections/{section_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Удалить секцию (только организатор)",
+    summary="Удалить секцию (только администратор)",
 )
 def delete_section(
     section_id: int,

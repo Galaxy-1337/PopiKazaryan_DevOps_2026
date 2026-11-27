@@ -72,7 +72,7 @@ ACTIVE_SECTION_STATUSES = (ApplicationStatus.SUBMITTED, ApplicationStatus.ACCEPT
 DEFAULT_SECTION_CAPACITY = 5
 # Минимальная вместимость секции: меньше одного места она иметь не может.
 MIN_SECTION_CAPACITY = 1
-# Максимальная вместимость секции, которую допускает интерфейс организатора.
+# Максимальная вместимость секции, которую допускает интерфейс администратора.
 MAX_SECTION_CAPACITY = 100
 
 
@@ -513,6 +513,29 @@ def confirm_hotel_booking(db: Session, booking: HotelBooking) -> HotelBooking:
     return booking
 
 
+def reject_hotel_booking(db: Session, booking: HotelBooking, *, reason: str | None = None) -> HotelBooking:
+    """Отклонить запрос на бронь гостиницы (решение администратора).
+
+    Отклонить можно только активный запрос: уже подтверждённую, отменённую или
+    истёкшую бронь повторно не отклоняют.
+    """
+    if booking.status == HotelStatus.CANCELLED:
+        raise DomainError("Запрос на бронь уже отклонён", code="hotel_already_cancelled")
+    if booking.status in (HotelStatus.EXPIRED,):
+        raise DomainError("Нельзя отклонить истёкшую бронь", code="hotel_not_rejectable")
+    if booking.status == HotelStatus.CONFIRMED:
+        raise DomainError(
+            "Бронь уже подтверждена: сначала отмените её, если нужно отказать",
+            code="hotel_already_confirmed",
+        )
+
+    booking.status = HotelStatus.CANCELLED
+    if reason:
+        booking.comment = f"{booking.comment or ''} Отказ: {reason}".strip()
+    log_action(db, entity="hotel", entity_id=booking.id, action="reject", details=reason)
+    return booking
+
+
 def expire_stale_hotel_bookings(db: Session) -> int:
     """Пометить просроченные брони как истёкшие. Возвращает число записей."""
     # Сравнение выполняется в Python: SQLite не хранит часовой пояс, поэтому
@@ -544,6 +567,7 @@ __all__ = [
     "pay_fee",
     "queue_invitation",
     "refund_fee",
+    "reject_hotel_booking",
     "review_thesis",
     "section_load",
     "send_invitation",

@@ -3,15 +3,23 @@
 Тесты работают на отдельной тестовой базе SQLite: каждый тест получает
 чистую схему, поэтому тесты не зависят от порядка выполнения.
 
-API защищён аутентификацией. Учётная запись в системе одна — организатор,
-поэтому основная фикстура ``client`` выполняет вход под ней и работает с cookie
-сессии, а ``anon_client`` используется для проверки защиты маршрутов без входа.
+API полностью закрыт аутентификацией: без активной сессии не выдаётся ничего,
+кроме страницы входа и служебного пробника. В системе две роли, поэтому есть
+две основные фикстуры:
+
+* ``admin_client`` — сессия администратора (все разделы и служебные страницы);
+* ``client`` (он же ``participant_client``) — сессия участника: он подаёт заявки,
+  пишет тезисы, оформляет гостиницу и оплачивает взносы только от своего имени.
+
+Для проверок, где нужно несколько участников, используется фабрика
+``participant_factory``: она создаёт запись реестра и учётную запись с ролью
+«участник» и возвращает клиент, вошедший под ней.
 """
 
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -26,6 +34,8 @@ os.environ.setdefault("SEED_DEMO_DATA", "true")
 os.environ.setdefault("ADMIN_EMAIL", "organizer@example.com")
 os.environ.setdefault("ADMIN_PASSWORD", "Conference2026")
 os.environ.setdefault("DEMO_PASSWORD", "Conference2026")
+os.environ.setdefault("PARTICIPANT_EMAIL", "polzovatel@example.ru")
+os.environ.setdefault("PARTICIPANT_PASSWORD", "Conference2026")
 os.environ.setdefault("SECTION_CAPACITY", "3")
 os.environ.setdefault("HOTEL_CONFIRMATION_HOURS", "48")
 
@@ -35,24 +45,29 @@ from sqlalchemy.orm import Session  # noqa: E402
 from app.database import SessionLocal, drop_all, engine  # noqa: E402
 from app.main import app as fastapi_app  # noqa: E402
 
+# Пароль учётных записей, создаваемых тестами.
+TEST_PASSWORD = "Conference2026"
+
 
 def credentials(role: str) -> tuple[str, str]:
     """Адрес и пароль учётной записи.
 
-    Учётная запись в системе одна — организатор. Значения берутся из настроек
-    приложения, поэтому тесты не зависят от того, что записано в локальном файле
-    ``.env``: проверяется именно то, что создаёт наполнение базы данных.
+    Значения берутся из настроек приложения, поэтому тесты не зависят от того,
+    что записано в локальном файле ``.env``: проверяется именно то, что создаёт
+    наполнение базы данных.
     """
     from app.config import get_settings
 
     settings = get_settings()
     accounts = {
-        "organizer": (settings.admin_email, settings.effective_admin_password),
+        "admin": (settings.admin_email, settings.effective_admin_password),
+        "participant": (settings.participant_email, settings.effective_participant_password),
     }
     return accounts[role]
 
 
-ORGANIZER = credentials("organizer")
+ADMIN = credentials("admin")
+PARTICIPANT = credentials("participant")
 
 
 def _login(client: TestClient, credentials: tuple[str, str]) -> TestClient:
@@ -114,14 +129,68 @@ def anon_client() -> Iterator[TestClient]:
 
 
 @pytest.fixture
-def client() -> Iterator[TestClient]:
-    """Клиент организатора: единственная учётная запись, полный доступ."""
+def admin_client() -> Iterator[TestClient]:
+    """Клиент администратора: все разделы и служебные страницы."""
     with TestClient(fastapi_app) as test_client:
-        yield _login(test_client, ORGANIZER)
+        yield _login(test_client, ADMIN)
 
 
 @pytest.fixture
-def conference(client: TestClient) -> dict:
+def participant_client() -> Iterator[TestClient]:
+    """Клиент демонстрационного участника (учётная запись из наполнения базы)."""
+    with TestClient(fastapi_app) as test_client:
+        yield _login(test_client, PARTICIPANT)
+
+
+@pytest.fixture
+def client(participant_client: TestClient) -> TestClient:
+    """Основной клиент тестов предметной области — участник.
+
+    Заявки, тезисы, гостиницу и оплату взносов выполняет именно участник: эти
+    операции администратору недоступны.
+    """
+    return participant_client
+
+
+@pytest.fixture
+def participant_factory(db: Session) -> Callable[[str, str], TestClient]:
+    """Фабрика участников: запись реестра + учётная запись + клиент с сессией.
+
+    Используется там, где проверка требует нескольких участников (например,
+    правило вместимости секции): каждый участник работает от своего имени.
+    """
+    from app import auth, models
+
+    def factory(full_name: str, email: str) -> TestClient:
+        participant = models.Participant(
+            full_name=full_name,
+            email=email,
+            organization="Московский Политех",
+            city="Москва",
+        )
+        db.add(participant)
+        db.flush()
+        user = auth.create_user(
+            db,
+            email=email,
+            password=TEST_PASSWORD,
+            role=models.UserRole.PARTICIPANT,
+            full_name=full_name,
+            participant=participant,
+        )
+        db.add(user)
+        db.commit()
+
+        new_client = TestClient(fastapi_app)
+        response = new_client.post("/api/v1/auth/login", json={"email": email, "password": TEST_PASSWORD})
+        assert response.status_code == 200, response.text
+        return new_client
+
+    return factory
+
+
+@pytest.fixture
+def conference(admin_client: TestClient) -> dict:
     """Активная конференция с тремя секциями."""
     payload = {
         "title": "Тестовая конференция",
@@ -133,12 +202,12 @@ def conference(client: TestClient) -> dict:
         "fee_amount": "3000.00",
         "is_active": True,
     }
-    response = client.post("/api/v1/conferences", json=payload)
+    response = admin_client.post("/api/v1/conferences", json=payload)
     assert response.status_code == 201, response.text
     body = response.json()
 
     for index in range(3):
-        section = client.post(
+        section = admin_client.post(
             "/api/v1/sections",
             json={
                 "conference_id": body["id"],
@@ -152,26 +221,25 @@ def conference(client: TestClient) -> dict:
 
 
 @pytest.fixture
-def sections(client: TestClient, conference: dict) -> list[dict]:
+def sections(admin_client: TestClient, conference: dict) -> list[dict]:
     """Секции тестовой конференции."""
-    response = client.get(f"/api/v1/sections?conference_id={conference['id']}")
+    response = admin_client.get(f"/api/v1/sections?conference_id={conference['id']}")
     assert response.status_code == 200
     return response.json()["items"]
 
 
 @pytest.fixture
-def participants(client: TestClient) -> list[dict]:
-    """Пять участников с уникальными адресами."""
+def participants(admin_client: TestClient) -> list[dict]:
+    """Пять участников с уникальными адресами (создаёт администратор)."""
     created = []
     for index in range(5):
-        response = client.post(
+        response = admin_client.post(
             "/api/v1/participants",
             json={
                 "full_name": f"Участник Тестовый {index + 1}",
                 "email": f"user{index + 1}@example.com",
                 "organization": "Московский Политех",
                 "city": "Москва",
-                "role": "speaker",
             },
         )
         assert response.status_code == 201, response.text

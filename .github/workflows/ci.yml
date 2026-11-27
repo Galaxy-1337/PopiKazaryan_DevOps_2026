@@ -50,6 +50,8 @@ jobs:
           ADMIN_EMAIL: organizer@example.com
           ADMIN_PASSWORD: Conference2026
           DEMO_PASSWORD: Conference2026
+          PARTICIPANT_EMAIL: polzovatel@example.ru
+          PARTICIPANT_PASSWORD: Conference2026
         run: pytest -q
 
       - name: Дымовая проверка приложения
@@ -58,6 +60,9 @@ jobs:
           SEED_DEMO_DATA: "true"
           ADMIN_EMAIL: organizer@example.com
           ADMIN_PASSWORD: Conference2026
+          DEMO_PASSWORD: Conference2026
+          PARTICIPANT_EMAIL: polzovatel@example.ru
+          PARTICIPANT_PASSWORD: Conference2026
           SMOKE_EMAIL: organizer@example.com
           SMOKE_PASSWORD: Conference2026
         run: python -m scripts.smoke
@@ -87,19 +92,21 @@ jobs:
             -e SEED_DEMO_DATA=true \
             -e ADMIN_EMAIL=organizer@example.com \
             -e ADMIN_PASSWORD=Conference2026 \
+            -e PARTICIPANT_EMAIL=polzovatel@example.ru \
+            -e PARTICIPANT_PASSWORD=Conference2026 \
             -p 8000:8000 conference:${{ github.sha }}
 
       - name: Ожидание готовности приложения
         run: |
           for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8000/health; then
+            if curl -fsS http://127.0.0.1:8000/internal/health; then
               echo "приложение готово (попытка $i)"
               exit 0
             fi
             echo "попытка $i: сервис недоступен, ждём 2 с"
             sleep 2
           done
-          echo "::error::Приложение не ответило на /health за 60 секунд"
+          echo "::error::Приложение не ответило на /internal/health за 60 секунд"
           exit 1
 
       - name: Диагностика контейнера при ошибке
@@ -113,10 +120,10 @@ jobs:
           docker top conference-ci || true
           echo "=== docker logs conference-ci ==="
           docker logs conference-ci || true
-          echo "=== проверка /health изнутри контейнера ==="
-          docker exec conference-ci curl -fsS http://127.0.0.1:8000/health || true
+          echo "=== проверка /internal/health изнутри контейнера ==="
+          docker exec conference-ci curl -fsS http://127.0.0.1:8000/internal/health || true
 
-      - name: Проверка /health внутри контейнера
+      - name: Проверка готовности приложения внутри контейнера
         run: python -m scripts.container_check
         env:
           APP_BASE_URL: http://127.0.0.1:8000

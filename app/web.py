@@ -3,6 +3,16 @@
 Интерфейс реализован на Jinja2 + ванильном JavaScript: страница получает данные
 из собственного HTTP API и отображает только те разделы, которые разрешены роли
 текущего пользователя.
+
+Набор разделов:
+
+* администратор — сводка, заявки, оргвзносы, приглашения, гостиница, тезисы,
+  участники;
+* участник — только заявки, оргвзносы, гостиница и тезисы, и только по своим
+  данным.
+
+Страница входа — единственная, доступная без активной сессии (проверка сессии
+выполняется в middleware приложения для каждого запроса).
 """
 
 from __future__ import annotations
@@ -20,30 +30,31 @@ from app.database import get_db
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
 
+# Разделы администратора: доступно всё.
+ADMIN_TABS: list[dict[str, str]] = [
+    {"key": "dashboard", "title": "Сводка"},
+    {"key": "applications", "title": "Заявки"},
+    {"key": "finance", "title": "Оргвзносы"},
+    {"key": "invitations", "title": "Приглашения"},
+    {"key": "hotel", "title": "Гостиница"},
+    {"key": "theses", "title": "Тезисы"},
+    {"key": "participants", "title": "Участники"},
+]
+
+# Разделы участника: только свои заявки, взносы, гостиница и тезисы.
+PARTICIPANT_TABS: list[dict[str, str]] = [
+    {"key": "applications", "title": "Мои заявки"},
+    {"key": "finance", "title": "Мои оргвзносы"},
+    {"key": "hotel", "title": "Моя гостиница"},
+    {"key": "theses", "title": "Мои тезисы"},
+]
+
 
 def _tabs_for(user: models.User) -> list[dict[str, str]]:
-    """Разделы интерфейса, доступные учётной записи.
-
-    В системе одна учётная запись — организатор с правом ``report:read``, поэтому
-    набор разделов полный. Состав всё равно выводится из прав, а не из названия
-    роли: если учётных записей с другим набором прав станет больше, интерфейс
-    подстроится без правок этого модуля.
-    """
-    tabs: list[dict[str, str]] = [{"key": "dashboard", "title": "Сводка"}]
-
-    if auth.has_permission(user, "report:read"):
-        tabs.extend(
-            [
-                {"key": "applications", "title": "Заявки"},
-                {"key": "finance", "title": "Оргвзносы"},
-                {"key": "invitations", "title": "Приглашения"},
-                {"key": "hotel", "title": "Гостиница"},
-                {"key": "theses", "title": "Тезисы"},
-                {"key": "participants", "title": "Участники"},
-            ]
-        )
-
-    return tabs
+    """Разделы интерфейса, доступные роли учётной записи."""
+    if user.role == models.UserRole.ADMIN:
+        return list(ADMIN_TABS)
+    return list(PARTICIPANT_TABS)
 
 
 @router.get("/login", response_class=HTMLResponse, include_in_schema=False)
@@ -116,6 +127,7 @@ def index(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
         context={
             "version": __version__,
             "user": user,
+            "is_admin": user.role == models.UserRole.ADMIN,
             "tabs": _tabs_for(user),
             "permissions": sorted(auth.PERMISSIONS.get(user.role, set())),
         },

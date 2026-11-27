@@ -1,11 +1,16 @@
-"""Аутентификация и роли пользователей.
+"""Аутентификация и разграничение доступа.
 
 Модуль отвечает за:
 
 * хеширование и проверку паролей (PBKDF2-HMAC-SHA256 со случайной солью);
 * создание, поиск и завершение сессий;
 * определение текущего пользователя по cookie ``conference_session``;
-* проверку прав доступа учётной записи (организатор — полный набор прав).
+* проверку прав доступа учётной записи (администратор или участник).
+
+В системе две роли: администратор видит все разделы и служебные страницы
+(``/docs``, ``/redoc``, ``/openapi.json``, ``/health``), участник — только свои
+заявки, оргвзносы, гостиницу и тезисы. Любой запрос выполняется только при
+активной сессии: проверка выполняется на каждом запросе.
 
 Пароли в открытом виде нигде не хранятся и не пишутся в журналы.
 """
@@ -35,34 +40,44 @@ SESSION_COOKIE = "conference_session"
 SESSION_TTL_HOURS = 12
 
 # --- Права доступа --------------------------------------------------------
-# В системе одна учётная запись — организатор, и она имеет полный доступ ко
-# всему функционалу приложения. Права перечислены явно: так состав доступа
-# виден в одном месте, его легко проверить на защите и показать через
+# Роль учётной записи определяет набор прав. Права перечислены явно: состав
+# доступа виден в одном месте, его легко проверить на защите и показать через
 # GET /api/v1/auth/roles.
 #
 # Права вида *_own означают работу только со своими данными: сервисный слой
 # дополнительно фильтрует выборки по участнику, связанному с учётной записью.
-PERMISSIONS: dict[models.ParticipantRole, set[str]] = {
-    models.ParticipantRole.ORGANIZER: {
+# У администратора таких прав нет — он видит всё, но не действует «от себя»:
+# администратор не подаёт заявки и не пишет тезисы.
+PERMISSIONS: dict[models.UserRole, set[str]] = {
+    models.UserRole.ADMIN: {
         "conference:manage",
         "section:manage",
-        "participant:manage",
-        "application:create",
+        "participant:read",
         "application:read_all",
-        "application:read_own",
         "application:decide",
-        "fee:manage",
-        "fee:read_own",
-        "fee:pay_own",
         "invitation:manage",
-        "invitation:read_own",
+        "fee:read_all",
+        "fee:manage",
+        "hotel:read_all",
         "hotel:manage",
-        "hotel:request_own",
         "thesis:read_all",
-        "thesis:submit_own",
         "thesis:review",
         "report:read",
+        "service:read",
         "user:manage",
+    },
+    models.UserRole.PARTICIPANT: {
+        "catalog:read",
+        "application:create",
+        "application:read_own",
+        "application:withdraw_own",
+        "fee:read_own",
+        "fee:pay_own",
+        "fee:refund_own",
+        "hotel:read_own",
+        "hotel:request_own",
+        "thesis:read_own",
+        "thesis:submit_own",
     },
 }
 
@@ -70,28 +85,34 @@ PERMISSIONS: dict[models.ParticipantRole, set[str]] = {
 PERMISSION_TITLES: dict[str, str] = {
     "conference:manage": "создание и изменение конференций",
     "section:manage": "управление секциями и их вместимостью",
-    "participant:manage": "ведение реестра участников",
-    "application:create": "создание заявки",
+    "participant:read": "просмотр реестра участников",
+    "application:create": "создание своей заявки",
     "application:read_all": "просмотр всех заявок",
     "application:read_own": "просмотр своих заявок",
+    "application:withdraw_own": "отзыв своей заявки",
     "application:decide": "решения по заявкам (принятие и отклонение)",
-    "fee:manage": "начисление и возврат оргвзносов",
+    "invitation:manage": "рассылка приглашений",
+    "fee:read_all": "просмотр всех оргвзносов",
     "fee:read_own": "просмотр своих оргвзносов",
     "fee:pay_own": "оплата своего оргвзноса",
-    "invitation:manage": "рассылка приглашений",
-    "invitation:read_own": "просмотр своих приглашений",
-    "hotel:manage": "управление бронями гостиницы",
+    "fee:refund_own": "возврат своего оргвзноса по отозванной или отклонённой заявке",
+    "fee:manage": "начисление и возврат оргвзносов",
+    "hotel:read_all": "просмотр всех броней гостиницы",
+    "hotel:read_own": "просмотр своих броней гостиницы",
+    "hotel:manage": "подтверждение и отклонение броней гостиницы",
     "hotel:request_own": "оформление гостиницы по своей заявке",
-    "thesis:submit_own": "подача тезисов по своей заявке",
-    "thesis:read_own": "просмотр своих тезисов",
     "thesis:read_all": "просмотр всех тезисов",
-    "thesis:review": "рецензирование тезисов",
+    "thesis:read_own": "просмотр своих тезисов",
+    "thesis:submit_own": "подача тезисов по своей заявке",
+    "thesis:review": "оценивание тезисов",
     "report:read": "просмотр сводных отчётов",
+    "service:read": "служебные страницы (/docs, /redoc, /openapi.json, /health)",
     "user:manage": "управление учётными записями",
 }
 
-ROLE_TITLES: dict[models.ParticipantRole, str] = {
-    models.ParticipantRole.ORGANIZER: "Организатор",
+ROLE_TITLES: dict[models.UserRole, str] = {
+    models.UserRole.ADMIN: "Администратор",
+    models.UserRole.PARTICIPANT: "Участник",
 }
 
 
@@ -166,7 +187,7 @@ def create_user(
     *,
     email: str,
     password: str,
-    role: models.ParticipantRole,
+    role: models.UserRole,
     full_name: str,
     participant: models.Participant | None = None,
 ) -> models.User:
@@ -257,21 +278,27 @@ def end_session(db: Session, token: str | None) -> None:
 # ---------------------------------------------------------------------------
 # Зависимости FastAPI
 # ---------------------------------------------------------------------------
+def session_token(request: Request) -> str | None:
+    """Токен сессии из cookie либо из заголовка ``Authorization: Bearer``."""
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        return token
+    header = request.headers.get("Authorization", "")
+    if header.lower().startswith("bearer "):
+        return header.split(" ", 1)[1].strip()
+    return None
+
+
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> models.User | None:
     """Текущий пользователь или None, если вход не выполнен."""
-    token = request.cookies.get(SESSION_COOKIE)
-    if not token:
-        header = request.headers.get("Authorization", "")
-        if header.lower().startswith("bearer "):
-            token = header.split(" ", 1)[1].strip()
-    return current_user_from_token(db, token)
+    return current_user_from_token(db, session_token(request))
 
 
 def require_authenticated(user: models.User | None = Depends(get_current_user)) -> models.User:
     """Требует, чтобы пользователь вошёл в систему.
 
-    Используется для разделов, доступных любой роли (например, справочники
-    конференций и секций, которые нужны и организатору, и участнику).
+    Используется для разделов, доступных обеим ролям (например, справочники
+    конференций и секций, которые нужны и администратору, и участнику).
     """
     if user is None:
         raise HTTPException(
@@ -281,26 +308,51 @@ def require_authenticated(user: models.User | None = Depends(get_current_user)) 
     return user
 
 
-def get_current_participant(user: models.User | None = Depends(get_current_user)) -> models.Participant:
-    """Участник, связанный с текущим пользователем.
+def require_admin(user: models.User | None = Depends(get_current_user)) -> models.User:
+    """Требует активную сессию администратора.
 
-    Используется там, где операции выполняются «от себя»: подача заявки,
-    заказ гостиницы, отправка тезисов.
+    Без сессии — 401, с сессией участника — 403: раздел существует, но
+    недоступен этой роли.
     """
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"code": "unauthorized", "message": "Требуется вход в систему"},
         )
-    if user.participant is None:
+    if user.role != models.UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
-                "code": "no_participant_profile",
-                "message": "Учётная запись не связана с участником конференции",
+                "code": "admin_only",
+                "message": f"Раздел доступен только администратору (вы вошли как «{user.role_title}»)",
             },
         )
-    return user.participant
+    return user
+
+
+def require_participant(user: models.User | None = Depends(get_current_user)) -> models.User:
+    """Требует активную сессию участника.
+
+    Администратор не действует «от себя»: он не подаёт заявки, не пишет тезисы и
+    не оплачивает оргвзносы. Такие операции доступны только роли «участник».
+    """
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "unauthorized", "message": "Требуется вход в систему"},
+        )
+    if user.role != models.UserRole.PARTICIPANT:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "participant_only",
+                "message": (
+                    "Действие доступно только участнику: администратор не подаёт заявки "
+                    "и не действует от своего имени"
+                ),
+            },
+        )
+    return user
 
 
 def has_permission(user: models.User | None, permission: str) -> bool:
@@ -332,42 +384,9 @@ def require_permission(permission: str):
     return dependency
 
 
-def require_any_permission(*permissions: str):
-    """Требует хотя бы одно из перечисленных прав.
-
-    Принимает именно права («report:read», «fee:manage»), а не названия ролей:
-    передача названия роли — частая ошибка, поэтому она сразу отклоняется.
-    """
-    needed = set(permissions)
-    unknown = {item for item in needed if ":" not in item}
-    if unknown:
-        raise ValueError(
-            "require_any_permission ожидает названия прав вида «раздел:действие», "
-            f"получено: {sorted(unknown)}"
-        )
-
-    def dependency(user: models.User | None = Depends(get_current_user)) -> models.User:
-        if user is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail={"code": "unauthorized", "message": "Требуется вход в систему"},
-            )
-        granted = PERMISSIONS.get(user.role, set())
-        if not (granted & needed):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "code": "forbidden",
-                    "message": (f"Учётная запись «{user.email}» не имеет доступа к этому разделу"),
-                },
-            )
-        return user
-
-    return dependency
-
-
 __all__ = [
     "PERMISSIONS",
+    "PERMISSION_TITLES",
     "ROLE_TITLES",
     "SESSION_COOKIE",
     "SESSION_TTL_HOURS",
@@ -377,13 +396,15 @@ __all__ = [
     "current_user_from_token",
     "end_session",
     "find_user",
-    "get_current_participant",
     "get_current_user",
     "has_permission",
     "hash_password",
     "password_problems",
-    "require_any_permission",
+    "require_admin",
+    "require_authenticated",
+    "require_participant",
     "require_permission",
+    "session_token",
     "start_session",
     "verify_password",
 ]

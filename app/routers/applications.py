@@ -2,12 +2,23 @@
 
 Разграничение доступа:
 
-* организатор — видит и изменяет все заявки, принимает решения;
-* участник и докладчик — видят только свои заявки и работают только с ними;
-* рецензент — видит список заявок для контекста, но не изменяет их.
+* администратор — видит все заявки и принимает по ним решения (принять или
+  отклонить). Сам администратор заявок не подаёт и не может «принять свою
+  заявку»: права ``application:create`` у него нет;
+* участник — видит и изменяет только заявки, поданные из его учётной записи:
+  создаёт черновик, подаёт, отзывает. Чужую заявку он не увидит ни в списке, ни
+  по прямому адресу.
+
+Кто именно участвует в конференции, определяется **данными заявки** (ФИО и
+электронная почта), а не учётной записью: учётная запись участника
+универсальная, поэтому из-под неё можно подать заявки на разных людей. Правило
+«один человек — одна заявка в секции» сравнивает участника реестра, найденного
+по почте из заявки.
 """
 
 from __future__ import annotations
+
+import logging
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import select
@@ -18,15 +29,15 @@ from app.database import get_db
 from app.routers.deps import conflict, not_found, paginate
 from app.services import DomainError
 
+logger = logging.getLogger("conference.applications")
+
 router = APIRouter(prefix="/api/v1/applications", tags=["applications"])
 
 require_authenticated = auth.require_authenticated
-require_own_application = auth.require_any_permission("application:create", "application:read_own")
-require_decide = auth.require_permission("application:decide")
-
-
-def _is_organizer(user: models.User) -> bool:
-    return auth.has_permission(user, "application:decide")
+# Заявки подаёт и меняет только участник: администратор работает с ними лишь
+# через решения (принять/отклонить).
+require_participant = auth.require_participant
+require_decide = auth.require_admin
 
 
 def _load(db: Session, application_id: int) -> models.Application:
@@ -48,39 +59,75 @@ def _load(db: Session, application_id: int) -> models.Application:
     return application
 
 
-def _ensure_can_touch(user: models.User, application: models.Application) -> None:
-    """Разрешить работу с заявкой только её автору или организатору."""
-    if _is_organizer(user):
-        return
-    if user.participant_id != application.participant_id:
+def _ensure_owner(user: models.User, application: models.Application) -> None:
+    """Работать с заявкой может только учётная запись, из-под которой её подали.
+
+    Администратор сюда не попадает: операции с заявкой доступны лишь роли
+    «участник» (см. зависимости маршрутов).
+    """
+    if application.created_by_user_id != user.id:
         raise conflict(
             "forbidden_not_owner",
-            "Заявка принадлежит другому участнику: работать с ней может только её автор или организатор",
+            "Заявка подана из другой учётной записи: доступна только её автору",
             http_status=status.HTTP_403_FORBIDDEN,
         )
 
 
-@router.get("", response_model=schemas.Page[schemas.ApplicationOut], summary="Список заявок")
+def _resolve_participant(db: Session, payload: schemas.ApplicationCreate) -> models.Participant:
+    """Найти или создать участника по данным заявки.
+
+    Человек определяется почтой из заявки. Если участник с такой почтой уже есть
+    в реестре, заявка оформляется на него — правило «один человек — одна заявка в
+    секции» сравнивает именно эти данные, а не учётную запись, из-под которой
+    подана заявка. Если почты в реестре нет, создаётся новая запись с указанными
+    ФИО, организацией и городом.
+    """
+    email = str(payload.email).strip().lower()
+    participant = db.execute(
+        select(models.Participant).where(models.Participant.email == email)
+    ).scalar_one_or_none()
+    if participant is not None:
+        return participant
+
+    participant = models.Participant(
+        full_name=payload.full_name.strip(),
+        email=email,
+        organization=payload.organization,
+        city=payload.city,
+    )
+    db.add(participant)
+    db.flush()
+    logger.info("Создан участник %s по данным заявки", email)
+    return participant
+
+
+@router.get(
+    "",
+    response_model=schemas.Page[schemas.ApplicationOut],
+    summary="Список заявок",
+    description=(
+        "Администратор видит все заявки. Участник видит только заявки, поданные из "
+        "его учётной записи: выборка фильтруется по владельцу заявки."
+    ),
+)
 def list_applications(
     db: Session = Depends(get_db),
     user: models.User = Depends(require_authenticated),
     conference_id: int | None = Query(None, gt=0),
     section_id: int | None = Query(None, gt=0),
-    participant_id: int | None = Query(None, gt=0),
+    participant_id: int | None = Query(None, gt=0, description="Только для администратора"),
     app_status: models.ApplicationStatus | None = Query(None, alias="status"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> schemas.Page[schemas.ApplicationOut]:
     stmt = select(models.Application).order_by(models.Application.created_at.desc())
 
-    # Организатор и рецензент видят все заявки, остальные — только свои.
-    if _is_organizer(user) or auth.has_permission(user, "application:read_all"):
+    if user.is_admin:
         if participant_id is not None:
             stmt = stmt.where(models.Application.participant_id == participant_id)
     else:
-        if user.participant_id is None:
-            return schemas.Page[schemas.ApplicationOut](items=[], total=0, limit=limit, offset=offset)
-        stmt = stmt.where(models.Application.participant_id == user.participant_id)
+        # Участник видит только заявки, поданные из его учётной записи.
+        stmt = stmt.where(models.Application.created_by_user_id == user.id)
 
     if conference_id is not None:
         stmt = stmt.where(models.Application.conference_id == conference_id)
@@ -95,16 +142,19 @@ def list_applications(
     "",
     response_model=schemas.ApplicationOut,
     status_code=status.HTTP_201_CREATED,
-    summary="Создать заявку (черновик)",
+    summary="Создать черновик заявки (только участник)",
     description=(
-        "Участник и докладчик создают заявку только от своего имени. Организатор "
-        "может создать заявку для любого участника."
+        "Участник заявки определяется её данными: ФИО и почта обязательны. По почте "
+        "находится или создаётся запись реестра участников, поэтому из одной "
+        "универсальной учётной записи можно подать заявки на разных людей. Правило "
+        "«один человек — одна заявка в секции» сравнивает именно эти данные. "
+        "Администратору создание заявок недоступно."
     ),
 )
 def create_application(
     payload: schemas.ApplicationCreate,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_own_application),
+    user: models.User = Depends(require_participant),
 ) -> models.Application:
     conference = db.get(models.Conference, payload.conference_id)
     if conference is None:
@@ -120,41 +170,32 @@ def create_application(
             http_status=status.HTTP_400_BAD_REQUEST,
         )
 
-    participant_id = payload.participant_id
-    if not _is_organizer(user):
-        if user.participant_id is None:
-            raise conflict(
-                "no_participant_profile",
-                "Учётная запись не связана с участником конференции",
-                http_status=status.HTTP_403_FORBIDDEN,
-            )
-        if participant_id != user.participant_id:
-            raise conflict(
-                "forbidden_foreign_participant",
-                "Заявку можно подать только от своего имени",
-                http_status=status.HTTP_403_FORBIDDEN,
-            )
-
-    participant = db.get(models.Participant, participant_id)
-    if participant is None:
-        raise not_found("Участник", participant_id)
+    participant = _resolve_participant(db, payload)
 
     duplicate = db.execute(
         select(models.Application).where(
             models.Application.conference_id == payload.conference_id,
             models.Application.section_id == payload.section_id,
-            models.Application.participant_id == participant_id,
+            models.Application.participant_id == participant.id,
         )
     ).scalar_one_or_none()
     if duplicate is not None:
         raise conflict(
             "application_duplicate",
-            "Участник уже имеет заявку в этой секции данной конференции",
+            f"У участника «{participant.full_name}» ({participant.email}) уже есть заявка "
+            "в этой секции данной конференции",
         )
 
-    data = payload.model_dump()
-    data["participant_id"] = participant_id
-    application = models.Application(**data)
+    application = models.Application(
+        conference_id=payload.conference_id,
+        section_id=payload.section_id,
+        participant_id=participant.id,
+        created_by_user_id=user.id,
+        topic=payload.topic,
+        annotation=payload.annotation,
+        format=payload.format,
+        needs_hotel=payload.needs_hotel,
+    )
     if application.needs_hotel and application.format == models.ParticipationFormat.ONLINE:
         raise conflict(
             "hotel_not_allowed_for_online",
@@ -168,38 +209,43 @@ def create_application(
         entity="application",
         entity_id=None,
         action="create",
-        details=f"{application.topic} — создал {user.email}",
+        details=f"{application.topic} — участник {participant.email}, подал {user.email}",
     )
     db.commit()
     db.refresh(application)
     return application
 
 
-@router.get("/{application_id}", response_model=schemas.ApplicationOut, summary="Заявка по id")
+@router.get(
+    "/{application_id}",
+    response_model=schemas.ApplicationOut,
+    summary="Заявка по id",
+    description="Участнику доступна только его собственная заявка, иначе 403.",
+)
 def get_application(
     application_id: int,
     db: Session = Depends(get_db),
     user: models.User = Depends(require_authenticated),
 ) -> models.Application:
     application = _load(db, application_id)
-    if not (_is_organizer(user) or auth.has_permission(user, "application:read_all")):
-        _ensure_can_touch(user, application)
+    if not user.is_admin:
+        _ensure_owner(user, application)
     return application
 
 
 @router.patch(
     "/{application_id}",
     response_model=schemas.ApplicationOut,
-    summary="Изменить черновик заявки",
+    summary="Изменить черновик заявки (только участник)",
 )
 def update_application(
     application_id: int,
     payload: schemas.ApplicationUpdate,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_own_application),
+    user: models.User = Depends(require_participant),
 ) -> models.Application:
     application = _load(db, application_id)
-    _ensure_can_touch(user, application)
+    _ensure_owner(user, application)
 
     if application.status != models.ApplicationStatus.DRAFT:
         raise conflict(
@@ -237,15 +283,15 @@ def update_application(
 @router.delete(
     "/{application_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Удалить черновик заявки",
+    summary="Удалить черновик заявки (только участник)",
 )
 def delete_application(
     application_id: int,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_own_application),
+    user: models.User = Depends(require_participant),
 ) -> None:
     application = _load(db, application_id)
-    _ensure_can_touch(user, application)
+    _ensure_owner(user, application)
 
     if application.status not in (models.ApplicationStatus.DRAFT, models.ApplicationStatus.WITHDRAWN):
         raise conflict(
@@ -259,7 +305,7 @@ def delete_application(
 @router.post(
     "/{application_id}/submit",
     response_model=schemas.ApplicationOut,
-    summary="Подать заявку",
+    summary="Подать заявку (только участник)",
     description=(
         "Проверяет правила: конференция активна, секция открыта и имеет свободные места. "
         "При нарушении возвращает 409 с кодом правила."
@@ -268,10 +314,10 @@ def delete_application(
 def submit_application(
     application_id: int,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_own_application),
+    user: models.User = Depends(require_participant),
 ) -> models.Application:
     application = _load(db, application_id)
-    _ensure_can_touch(user, application)
+    _ensure_owner(user, application)
     try:
         services.submit_application(db, application)
     except DomainError as exc:
@@ -284,9 +330,11 @@ def submit_application(
 @router.post(
     "/{application_id}/decision",
     response_model=schemas.ApplicationOut,
-    summary="Принять решение по заявке (только организатор)",
+    summary="Принять решение по заявке (только администратор)",
     description=(
-        "При принятии заявки автоматически начисляется оргвзнос и приглашение ставится в очередь рассылки."
+        "При принятии заявки автоматически начисляется оргвзнос и приглашение ставится "
+        "в очередь рассылки. Решение принимает администратор: свою заявку он подать не "
+        "может, поэтому «принять себя» невозможно."
     ),
 )
 def decide_application(
@@ -308,15 +356,15 @@ def decide_application(
 @router.post(
     "/{application_id}/withdraw",
     response_model=schemas.ApplicationOut,
-    summary="Отозвать заявку",
+    summary="Отозвать заявку (только участник)",
 )
 def withdraw_application(
     application_id: int,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_own_application),
+    user: models.User = Depends(require_participant),
 ) -> models.Application:
     application = _load(db, application_id)
-    _ensure_can_touch(user, application)
+    _ensure_owner(user, application)
     try:
         services.withdraw_application(db, application)
     except DomainError as exc:

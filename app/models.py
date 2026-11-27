@@ -6,7 +6,7 @@
   правила приёма заявок.
 * ``Section`` — секция конференции (тематическое направление) с ограничением по
   числу участников.
-* ``Participant`` — участник: ФИО, организация, контактные данные, роль.
+* ``Participant`` — участник: ФИО, организация, контактные данные.
 * ``Application`` — заявка участника на участие в секции (центральная сущность
   жизненного цикла: черновик → подана → принята/отклонена → отозвана).
 * ``Invitation`` — приглашение, поставленное в очередь рассылки и отправленное
@@ -81,13 +81,15 @@ class ParticipationFormat(enum.StrEnum):
     POSTER = "poster"  # стендовый доклад
 
 
-class ParticipantRole(enum.StrEnum):
-    """Роль участника в конференции."""
+class UserRole(enum.StrEnum):
+    """Роль учётной записи: определяет доступные разделы и действия.
 
-    LISTENER = "listener"  # слушатель
-    SPEAKER = "speaker"  # докладчик
-    ORGANIZER = "organizer"  # организатор
-    REVIEWER = "reviewer"  # рецензент
+    Роль есть только у учётной записи (``User``). В реестре участников роли нет:
+    как отдельная сущность она ни на что не влияла и была лишней.
+    """
+
+    ADMIN = "admin"  # администратор: все разделы и служебные страницы
+    PARTICIPANT = "participant"  # участник: только свои заявки, взносы, гостиница и тезисы
 
 
 class FeeStatus(enum.StrEnum):
@@ -207,11 +209,6 @@ class Participant(Base):
     position: Mapped[str | None] = mapped_column(String(150))
     academic_degree: Mapped[str | None] = mapped_column(String(120))
     city: Mapped[str | None] = mapped_column(String(120))
-    role: Mapped[ParticipantRole] = mapped_column(
-        Enum(ParticipantRole, native_enum=False, length=20),
-        nullable=False,
-        default=ParticipantRole.LISTENER,
-    )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
@@ -251,6 +248,12 @@ class Application(Base):
     participant_id: Mapped[int] = mapped_column(
         ForeignKey("participants.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # Кто подал заявку. Учётная запись участника — универсальная (одна на всех),
+    # поэтому «свои» данные определяются по этому полю, а не по участнику:
+    # через одну учётную запись можно подать заявки на разных людей.
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
     topic: Mapped[str] = mapped_column(String(300), nullable=False)
     annotation: Mapped[str | None] = mapped_column(Text)
     format: Mapped[ParticipationFormat] = mapped_column(
@@ -276,6 +279,7 @@ class Application(Base):
     conference: Mapped[Conference] = relationship(back_populates="applications")
     section: Mapped[Section] = relationship(back_populates="applications")
     participant: Mapped[Participant] = relationship(back_populates="applications")
+    created_by: Mapped[User | None] = relationship(foreign_keys=[created_by_user_id])
     invitation: Mapped[Invitation | None] = relationship(
         back_populates="application", cascade="all, delete-orphan", uselist=False
     )
@@ -286,7 +290,10 @@ class Application(Base):
     )
 
     __table_args__ = (
-        # Один участник — одна заявка в конкретной секции конкретной конференции.
+        # Один и тот же человек (участник реестра) — одна заявка в конкретной
+        # секции конкретной конференции. Учётная запись при этом не ограничена:
+        # через одну универсальную учётную запись можно подать заявки на разных
+        # людей — правило сравнивает данные заявки, а не того, кто её подал.
         UniqueConstraint("conference_id", "section_id", "participant_id", name="uq_application_unique"),
     )
 
@@ -352,6 +359,15 @@ class Fee(Base):
     application: Mapped[Application] = relationship(back_populates="fees")
 
     __table_args__ = (CheckConstraint("amount >= 0", name="ck_fee_amount_non_negative"),)
+
+    @property
+    def application_status(self) -> ApplicationStatus:
+        """Статус заявки, к которой относится взнос.
+
+        Нужен интерфейсу: участник видит кнопку возврата только тогда, когда
+        заявка отозвана или отклонена (таково правило возврата).
+        """
+        return self.application.status
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Fee id={self.id} amount={self.amount} status={self.status.value}>"
@@ -468,10 +484,10 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     email: Mapped[str] = mapped_column(String(200), nullable=False, unique=True, index=True)
     full_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    role: Mapped[ParticipantRole] = mapped_column(
-        Enum(ParticipantRole, native_enum=False, length=20),
+    role: Mapped[UserRole] = mapped_column(
+        Enum(UserRole, native_enum=False, length=20),
         nullable=False,
-        default=ParticipantRole.LISTENER,
+        default=UserRole.PARTICIPANT,
         index=True,
     )
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -488,13 +504,16 @@ class User(Base):
     sessions: Mapped[list[Session]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
     @property
+    def is_admin(self) -> bool:
+        """Признак администратора: удобная проверка в шаблонах и правилах."""
+        return self.role == UserRole.ADMIN
+
+    @property
     def role_title(self) -> str:
         """Название роли для интерфейса."""
         return {
-            ParticipantRole.ORGANIZER: "Организатор",
-            ParticipantRole.LISTENER: "Участник (слушатель)",
-            ParticipantRole.SPEAKER: "Докладчик",
-            ParticipantRole.REVIEWER: "Рецензент",
+            UserRole.ADMIN: "Администратор",
+            UserRole.PARTICIPANT: "Участник",
         }.get(self.role, str(self.role))
 
     def __repr__(self) -> str:  # pragma: no cover
@@ -537,12 +556,12 @@ __all__ = [
     "Invitation",
     "InvitationStatus",
     "Participant",
-    "ParticipantRole",
     "ParticipationFormat",
     "Section",
     "Session",
     "Thesis",
     "ThesisStatus",
     "User",
+    "UserRole",
     "utcnow",
 ]

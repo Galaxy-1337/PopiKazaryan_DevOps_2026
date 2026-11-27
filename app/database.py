@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import get_settings
+
+logger = logging.getLogger("conference.database")
 
 
 class Base(DeclarativeBase):
@@ -70,10 +74,77 @@ def session_scope() -> Iterator[Session]:
         db.close()
 
 
+def migrate_legacy_schema() -> None:
+    """Привести базу предыдущей версии к текущей схеме.
+
+    Разграничение доступа сделало поле ``participants.role`` ненужным: роли в
+    реестре участников больше нет, а роль учётной записи принимает значения
+    ``admin`` и ``participant``. Здесь база приводится к этому виду **без потери
+    данных**, чтобы после обновления не приходилось удалять существующую базу.
+
+    Если схема уже актуальна, функция ничего не делает.
+    """
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+
+    if "participants" in tables:
+        columns = {column["name"] for column in inspector.get_columns("participants")}
+        if "role" in columns:
+            try:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE participants DROP COLUMN role"))
+                logger.info("Схема обновлена: поле participants.role удалено")
+            except DBAPIError as exc:
+                logger.warning(
+                    "Не удалось удалить поле participants.role (%s). "
+                    "Удалите базу (файл data/conference.db либо том PostgreSQL "
+                    "командой docker compose down -v) и запустите приложение заново.",
+                    exc.__class__.__name__,
+                )
+
+    if "users" in tables:
+        with engine.begin() as connection:
+            # Прежняя роль организатора становится ролью администратора, а все
+            # прежние роли участников — ролью участника. SQLAlchemy хранит в базе
+            # ИМЕНА элементов перечисления (ORGANIZER, LISTENER, ...), поэтому
+            # учитываются оба варианта написания.
+            connection.execute(
+                text("UPDATE users SET role = 'ADMIN' WHERE role IN ('ORGANIZER', 'organizer')")
+            )
+            connection.execute(
+                text(
+                    "UPDATE users SET role = 'PARTICIPANT' "
+                    "WHERE role IN ('LISTENER', 'SPEAKER', 'REVIEWER', "
+                    "'listener', 'speaker', 'reviewer')"
+                )
+            )
+
+    if "applications" in tables:
+        columns = {column["name"] for column in inspector.get_columns("applications")}
+        if "created_by_user_id" not in columns:
+            try:
+                with engine.begin() as connection:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE applications ADD COLUMN created_by_user_id INTEGER "
+                            "REFERENCES users(id) ON DELETE SET NULL"
+                        )
+                    )
+                logger.info("Схема обновлена: добавлено поле applications.created_by_user_id")
+            except DBAPIError as exc:
+                logger.warning(
+                    "Не удалось добавить поле applications.created_by_user_id (%s). "
+                    "Удалите базу (файл data/conference.db либо том PostgreSQL "
+                    "командой docker compose down -v) и запустите приложение заново.",
+                    exc.__class__.__name__,
+                )
+
+
 def create_all() -> None:
-    """Создать схему БД, если она ещё не создана."""
+    """Создать схему БД, если она ещё не создана, и обновить её предыдущую версию."""
     from app import models  # noqa: F401  (регистрация моделей в metadata)
 
+    migrate_legacy_schema()
     Base.metadata.create_all(bind=engine)
 
 
@@ -91,5 +162,6 @@ __all__ = [
     "drop_all",
     "engine",
     "get_db",
+    "migrate_legacy_schema",
     "session_scope",
 ]

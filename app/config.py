@@ -40,18 +40,26 @@ class Settings(BaseSettings):
     # --- Администратор -------------------------------------------------
     # Внимание: адрес должен быть синтаксически корректным. Служебные зоны
     # (.local, .internal, .localhost) не проходят проверку EmailStr, поэтому
-    # по умолчанию используется домен example.com из RFC 2606.
-    admin_email: str = Field(default="admin@example.com")
+    # используется домен example.com из RFC 2606. Значение по умолчанию
+    # совпадает с тем, что описано в документации и в .env.example.
+    admin_email: str = Field(default="organizer@example.com")
     admin_password: str = Field(default="ChangeMe_12345")
     admin_full_name: str = Field(default="Администратор программы")
 
     # --- Демонстрационные данные ---------------------------------------
     seed_demo_data: bool = Field(default=True)
 
-    # --- Учётные записи демонстрационных ролей --------------------------
-    # Единый пароль для демонстрационных учётных записей всех ролей. Пароль
-    # используется только при наполнении базы и подлежит замене в эксплуатации.
+    # --- Учётные записи -------------------------------------------------
+    # Единый пароль для демонстрационных учётных записей. Пароль используется
+    # только при наполнении базы и подлежит замене в эксплуатации.
     demo_password: str = Field(default="Conference2026")
+
+    # Учётная запись участника — универсальная (одна на всех): ФИО и почту
+    # участник указывает в каждой заявке, поэтому учётная запись не привязана ни
+    # к кому персонально. Если пароль не задан, используется DEMO_PASSWORD.
+    participant_email: str = Field(default="polzovatel@example.ru")
+    participant_password: str = Field(default="")
+    participant_full_name: str = Field(default="Пользователь")
 
     # --- Правила предметной области ------------------------------------
     section_capacity: int = Field(default=3, ge=1)
@@ -64,7 +72,7 @@ class Settings(BaseSettings):
 
     @property
     def effective_admin_password(self) -> str:
-        """Пароль организатора с учётом демонстрационного режима.
+        """Пароль администратора с учётом демонстрационного режима.
 
         Если ``ADMIN_PASSWORD`` оставлен значением по умолчанию, используется
         общий пароль демонстрационных учётных записей (``DEMO_PASSWORD``) —
@@ -75,6 +83,15 @@ class Settings(BaseSettings):
         if self.admin_password != Settings.model_fields["admin_password"].default:
             return self.admin_password
         return self.demo_password or self.admin_password
+
+    @property
+    def effective_participant_password(self) -> str:
+        """Пароль демонстрационного участника.
+
+        Берётся из ``PARTICIPANT_PASSWORD``, а если он не задан — из
+        ``DEMO_PASSWORD``: на защите достаточно помнить один пароль.
+        """
+        return self.participant_password or self.demo_password or self.admin_password
 
     @property
     def safe_database_url(self) -> str:

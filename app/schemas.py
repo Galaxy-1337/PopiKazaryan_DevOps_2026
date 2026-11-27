@@ -13,9 +13,9 @@ from app.models import (
     FeeStatus,
     HotelStatus,
     InvitationStatus,
-    ParticipantRole,
     ParticipationFormat,
     ThesisStatus,
+    UserRole,
 )
 
 T = TypeVar("T")
@@ -131,7 +131,6 @@ class ParticipantCreate(BaseModel):
     position: Annotated[str, Field(max_length=150)] | None = None
     academic_degree: Annotated[str, Field(max_length=120)] | None = None
     city: Annotated[str, Field(max_length=120)] | None = None
-    role: ParticipantRole = ParticipantRole.LISTENER
     is_active: bool = True
 
 
@@ -143,12 +142,15 @@ class ParticipantUpdate(BaseModel):
     position: Annotated[str, Field(max_length=150)] | None = None
     academic_degree: Annotated[str, Field(max_length=120)] | None = None
     city: Annotated[str, Field(max_length=120)] | None = None
-    role: ParticipantRole | None = None
     is_active: bool | None = None
 
 
 class ParticipantOut(BaseModel):
     """Формат ответа по участнику.
+
+    Поле ``role`` здесь отсутствует: роль как отдельная сущность реестра
+    удалена — она ни на что не влияла. Роль есть только у учётной записи
+    (``User``) и определяет доступ к разделам.
 
     Поле ``email`` намеренно объявлено как обычная строка, а не ``EmailStr``:
     строгая проверка нужна при приёме данных (см. ``ParticipantCreate``), а на
@@ -166,7 +168,6 @@ class ParticipantOut(BaseModel):
     position: str | None
     academic_degree: str | None
     city: str | None
-    role: ParticipantRole
     is_active: bool
     created_at: datetime
 
@@ -175,13 +176,31 @@ class ParticipantOut(BaseModel):
 # Заявки
 # ---------------------------------------------------------------------------
 class ApplicationCreate(BaseModel):
+    """Новая заявка. Участник указывает свои данные в самой заявке.
+
+    Учётная запись участника — универсальная (одна на всех), поэтому человек
+    определяется **данными заявки**: ``full_name`` и ``email`` обязательны. По
+    почте система находит запись в реестре участников или создаёт новую, а
+    правило «один человек — одна заявка в секции» сравнивает именно эти данные,
+    а не учётную запись, из-под которой подана заявка.
+
+    Поля ``participant_id`` здесь нет: подставить чужой идентификатор нельзя.
+    Лишние поля запрещены (``extra="forbid"``) — попытка передать
+    ``participant_id`` отклоняется с ошибкой 422, а не игнорируется молча.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
     conference_id: int = Field(gt=0)
     section_id: int = Field(gt=0)
-    participant_id: int = Field(gt=0)
     topic: Annotated[str, Field(min_length=3, max_length=300)]
     annotation: str | None = None
     format: ParticipationFormat = ParticipationFormat.OFFLINE
     needs_hotel: bool = False
+    full_name: Annotated[str, Field(min_length=3, max_length=200)]
+    email: EmailStr
+    organization: Annotated[str, Field(max_length=250)] | None = None
+    city: Annotated[str, Field(max_length=120)] | None = None
 
 
 class ApplicationUpdate(BaseModel):
@@ -204,6 +223,9 @@ class ApplicationOut(BaseModel):
     conference_id: int
     section_id: int
     participant_id: int
+    # Учётная запись, из которой подана заявка: по ней определяются «свои» данные
+    # участника (учётная запись участника универсальная).
+    created_by_user_id: int | None
     topic: str
     annotation: str | None
     format: ParticipationFormat
@@ -262,6 +284,7 @@ class FeeOut(BaseModel):
     amount: Decimal
     currency: str
     status: FeeStatus
+    application_status: ApplicationStatus
     payment_reference: str | None
     paid_at: datetime | None
     refunded_at: datetime | None
@@ -324,6 +347,12 @@ class HotelBookingCreate(BaseModel):
         return value
 
 
+class HotelReject(BaseModel):
+    """Отказ по запросу на бронь гостиницы (решение администратора)."""
+
+    reason: Annotated[str, Field(max_length=1000)] | None = None
+
+
 class HotelBookingOut(BaseModel):
     model_config = ORM
 
@@ -370,7 +399,7 @@ class CurrentUserOut(BaseModel):
     id: int
     email: str
     full_name: str
-    role: ParticipantRole
+    role: UserRole
     role_title: str
     participant_id: int | None
     is_active: bool
@@ -380,7 +409,7 @@ class CurrentUserOut(BaseModel):
 class RoleOut(BaseModel):
     """Роль и перечень доступных ей действий."""
 
-    role: ParticipantRole
+    role: UserRole
     title: str
     permissions: list[str]
 
@@ -423,6 +452,7 @@ __all__ = [
     "HealthOut",
     "HotelBookingCreate",
     "HotelBookingOut",
+    "HotelReject",
     "InvitationCreate",
     "InvitationOut",
     "LoginRequest",

@@ -37,8 +37,14 @@ services:
       APP_HOST: 0.0.0.0
       APP_PORT: "8000"
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-conference}:${POSTGRES_PASSWORD:-conference}@db:5432/${POSTGRES_DB:-conference}
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@conference.local}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-ChangeMe_12345}
+      # Адрес администратора не должен быть в служебной зоне (.local): такие
+      # адреса не проходят проверку формата e-mail.
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-organizer@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Conference2026}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-Conference2026}
+      PARTICIPANT_EMAIL: ${PARTICIPANT_EMAIL:-polzovatel@example.ru}
+      PARTICIPANT_PASSWORD: ${PARTICIPANT_PASSWORD:-Conference2026}
+      PARTICIPANT_FULL_NAME: ${PARTICIPANT_FULL_NAME:-Пользователь}
       SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
       SECTION_CAPACITY: ${SECTION_CAPACITY:-3}
       HOTEL_CONFIRMATION_HOURS: ${HOTEL_CONFIRMATION_HOURS:-48}

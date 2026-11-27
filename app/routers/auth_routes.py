@@ -1,8 +1,17 @@
-"""Маршруты аутентификации: вход, выход и сведения о текущем пользователе."""
+"""Маршруты аутентификации: вход, выход и сведения о текущем пользователе.
+
+Доступ:
+
+* ``POST /login`` — единственный метод API, открытый без сессии (иначе войти
+  было бы невозможно). Проверка сессии для всех остальных адресов выполняется
+  в middleware приложения;
+* ``GET /me`` и ``POST /logout`` — для любой активной сессии;
+* ``GET /roles`` — справочник прав, доступен только администратору.
+"""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app import auth, models, schemas, services
@@ -19,7 +28,8 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
     description=(
         "Проверяет адрес электронной почты и пароль, создаёт сессию и устанавливает "
         "cookie conference_session. Пароль передаётся только по защищённому соединению "
-        "и нигде не сохраняется в открытом виде."
+        "и нигде не сохраняется в открытом виде. Это единственный адрес, доступный "
+        "без активной сессии."
     ),
 )
 def login(
@@ -64,9 +74,9 @@ def logout(
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
+    _user: models.User = Depends(auth.require_authenticated),
 ) -> dict[str, str]:
-    token = request.cookies.get(auth.SESSION_COOKIE)
-    auth.end_session(db, token)
+    auth.end_session(db, auth.session_token(request))
     db.commit()
     response.delete_cookie(auth.SESSION_COOKIE, path="/")
     return {"status": "logged_out"}
@@ -78,26 +88,20 @@ def logout(
     summary="Текущий пользователь",
     description="Возвращает учётную запись текущей сессии либо ошибку 401.",
 )
-def me(user: models.User | None = Depends(auth.get_current_user)) -> models.User:
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "unauthorized", "message": "Требуется вход в систему"},
-        )
+def me(user: models.User = Depends(auth.require_authenticated)) -> models.User:
     return user
 
 
 @router.get(
     "/roles",
     response_model=list[schemas.RoleOut],
-    summary="Учётные записи и их права",
+    summary="Роли и их права (только администратор)",
     description=(
-        "Справочник учётных записей: какие действия доступны каждой из них. "
-        "В системе одна учётная запись — организатор с полным набором прав; "
-        "ответ удобен для проверки доступа на защите."
+        "Справочник ролей: какие действия доступны администратору и участнику. "
+        "Доступен только администратору — участнику этот раздел закрыт."
     ),
 )
-def roles() -> list[schemas.RoleOut]:
+def roles(_user: models.User = Depends(auth.require_admin)) -> list[schemas.RoleOut]:
     return [
         schemas.RoleOut(
             role=role,
