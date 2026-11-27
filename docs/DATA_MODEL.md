@@ -8,91 +8,6 @@ PostgreSQL 16. Схема создаётся SQLAlchemy по метаданны�
 `fees`, `theses`, `hotel_bookings`, `audit_log`, а также `users` и `sessions` — учётные записи
 для входа и сессии аутентификации.
 
----
-
-## Диаграмма связей
-
-```
-                    ┌─────────────────────┐
-                    │    conferences      │
-                    │  id (PK)            │
-                    │  title, slug (UQ)   │
-                    │  starts_on, ends_on │
-                    │  location           │
-                    │  fee_amount         │
-                    │  is_active          │
-                    └──────────┬──────────┘
-                               │ 1
-                 ┌─────────────┴──────────────┐
-                 │ N                          │ N
-      ┌──────────▼──────────┐    ┌────────────▼─────────┐
-      │      sections       │    │     applications     │
-      │  id (PK)            │ 1  │  id (PK)             │
-      │  conference_id (FK) ├───►│  conference_id (FK)  │
-      │  title              │ N  │  section_id (FK)     │
-      │  capacity           │    │  participant_id (FK) │
-      │  is_open            │    │  topic, annotation   │
-      └─────────────────────┘    │  format, status      │
-                                 │  needs_hotel         │
-                                 └───┬───────┬──────┬───┘
-                                     │1      │1     │1
-                    ┌────────────────┘       │      └──────────────┐
-                    │                        │                     │
-              ┌─────▼──────────┐      ┌──────▼───────┐   ┌─────────▼────────┐
-              │  invitations   │      │    theses    │   │  hotel_bookings  │
-              │  id (PK)       │      │  id (PK)     │   │  id (PK)         │
-              │  application_id│      │  application │   │  application_id  │
-              │   (FK, UQ)     │      │   _id (FK)   │   │   (FK, UQ)       │
-              │  participant_id│      │  status      │   │  check_in/out    │
-              │   (FK)         │      │  review_score│   │  status          │
-              │  status        │      └──────────────┘   │  confirmation_   │
-              │  attempts      │                         │   deadline       │
-              └────────────────┘                         └──────────────────┘
-                    ▲
-                    │ N                       ┌──────────────┐
-        ┌───────────┴──────────┐              │    fees      │
-        │     participants     │              │  id (PK)     │
-        │  id (PK)             │              │  application │
-        │  full_name           │              │   _id (FK)   │
-        │  email (UQ)          │              │  amount      │
-        │  organization, city  │              │  status      │
-        │  role                │              └──────▲───────┘
-        └──────────┬───────────┘                     │ N
-                   │ 1 (необязательная связь)        └── applications (1:N)
-                   │ 1
-        ┌──────────▼───────────┐
-        │        users         │
-        │  id (PK)             │
-        │  email (UQ)          │
-        │  full_name           │
-        │  role                │
-        │  participant_id (FK, │
-        │   UQ, SET NULL)      │
-        │  is_active           │
-        │  last_login_at       │
-        └──────────┬───────────┘
-                   │ 1
-                   │ N
-        ┌──────────▼───────────┐
-        │      sessions        │
-        │  id (PK, cookie)     │
-        │  user_id (FK)        │
-        │  app_env             │
-        │  created_at          │
-        │  expires_at          │
-        └──────────────────────┘
-```
-
-`applications` — центральная сущность: она связывает участника, секцию и конференцию и
-является владельцем приглашения, оргвзносов, тезисов и брони гостиницы. При удалении заявки
-дочерние записи удаляются каскадно.
-
-`users` и `sessions` обслуживают вход в систему: учётная запись ссылается на запись участника
-(связь «один к одному», необязательная) и владеет сессиями; при удалении пользователя его
-сессии удаляются каскадно.
-
----
-
 ## Таблицы
 
 ### `conferences` — конференция
@@ -136,9 +51,14 @@ PostgreSQL 16. Схема создаётся SQLAlchemy по метаданны�
 | `position` | VARCHAR(150) | | должность |
 | `academic_degree` | VARCHAR(120) | | учёная степень |
 | `city` | VARCHAR(120) | | город |
-| `role` | VARCHAR(20) | NOT NULL, enum | `listener`, `speaker`, `organizer`, `reviewer` |
 | `is_active` | BOOLEAN | NOT NULL | признак активности |
 | `created_at` | TIMESTAMP | NOT NULL, UTC | время регистрации |
+
+Роли в реестре участников нет: как отдельная сущность она ни на что не влияла и удалена вместе с
+полем `role`. Роль есть только у учётной записи (`users.role`) и определяет доступ к разделам
+приложения. Учётная запись участника — универсальная: она с записью реестра не связана, а
+участник каждой заявки определяется её данными (ФИО и почта). Поле `users.participant_id`
+оставлено в схеме для совместимости и в текущей модели не заполняется.
 
 ### `users` — учётная запись для входа
 
@@ -147,20 +67,31 @@ PostgreSQL 16. Схема создаётся SQLAlchemy по метаданны�
 | `id` | INTEGER | PK | идентификатор |
 | `email` | VARCHAR(200) | NOT NULL, UNIQUE, индекс | адрес для входа (в нижнем регистре) |
 | `full_name` | VARCHAR(200) | NOT NULL | ФИО пользователя |
-| `role` | VARCHAR(20) | NOT NULL, индекс, enum | `organizer`, `listener`, `speaker`, `reviewer`; в системе используется только `organizer` |
+| `role` | VARCHAR(20) | NOT NULL, индекс, enum `UserRole` | `admin` (администратор) или `participant` (участник); определяет доступные разделы и действия |
 | `password_hash` | VARCHAR(255) | NOT NULL | хеш пароля PBKDF2-HMAC-SHA256, формат `pbkdf2_sha256$итерации$соль$хеш` |
-| `participant_id` | INTEGER | FK → `participants.id` ON DELETE SET NULL, UNIQUE | связанная запись участника (для работы «от себя») |
+| `participant_id` | INTEGER | FK → `participants.id` ON DELETE SET NULL, UNIQUE | совместимость: в текущей модели не заполняется (учётная запись участника универсальная) |
 | `is_active` | BOOLEAN | NOT NULL | признак активности учётной записи |
 | `created_at` | TIMESTAMP | NOT NULL, UTC | время создания |
 | `last_login_at` | TIMESTAMP | | время последнего входа |
 
-Таблица содержит **одну запись** — организатора: она создаётся при старте приложения из настроек
-`ADMIN_EMAIL` и пароля (`ADMIN_PASSWORD` / `DEMO_PASSWORD`). Другие значения `role` остаются в
-перечислении, потому что поле `participants.role` использует тот же тип для характеристики
-участника в реестре, но учётных записей с этими ролями не создаётся.
+Таблица содержит **две записи** — они создаются при старте приложения из настроек:
+
+| Учётная запись | Адрес для входа | Пароль | `participant_id` |
+|---|---|---|---|
+| администратор | `ADMIN_EMAIL` (`organizer@example.com` по умолчанию) | `ADMIN_PASSWORD`, иначе `DEMO_PASSWORD` | `NULL`: администратор создаётся без записи в реестре участников |
+| участник | `PARTICIPANT_EMAIL` (`polzovatel@example.ru` по умолчанию) | `PARTICIPANT_PASSWORD`, иначе `DEMO_PASSWORD` | `NULL`: универсальная учётная запись, ни к какому человеку не привязана |
+
+Учётные записи с другими адресами при старте удаляются, поэтому состояние базы всегда совпадает
+с текущей схемой доступа. Перечисление `UserRole` содержит ровно два значения — `admin` и
+`participant`.
 
 Пароль хранится только в виде хеша: PBKDF2-HMAC-SHA256, 200 000 итераций, случайная соль
 16 байт. Открытый пароль не сохраняется в базе и не записывается в журналы.
+
+`users.email` (адрес для входа) и `participants.email` (контактный адрес) — **независимые
+поля**. Участник указывает контактную почту в форме заявки, и она сохраняется в его профиле,
+но адрес для входа при этом не меняется: учётные данные остаются стабильными, поэтому вход под
+исходным адресом продолжает работать.
 
 ### `sessions` — сессия входа
 
@@ -183,7 +114,8 @@ PostgreSQL 16. Схема создаётся SQLAlchemy по метаданны�
 | `id` | INTEGER | PK | идентификатор |
 | `conference_id` | INTEGER | FK → `conferences.id` CASCADE | конференция |
 | `section_id` | INTEGER | FK → `sections.id` CASCADE | секция |
-| `participant_id` | INTEGER | FK → `participants.id` CASCADE | участник |
+| `participant_id` | INTEGER | FK → `participants.id` CASCADE | участник: определяется по почте из заявки (существующая запись или новая) |
+| `created_by_user_id` | INTEGER | FK → `users.id` ON DELETE SET NULL, индекс | учётная запись, из которой подана заявка: по ней определяются «свои» данные участника |
 | `topic` | VARCHAR(300) | NOT NULL | тема доклада |
 | `annotation` | TEXT | | аннотация |
 | `format` | VARCHAR(20) | NOT NULL, enum | `offline`, `online`, `poster` |
@@ -195,7 +127,9 @@ PostgreSQL 16. Схема создаётся SQLAlchemy по метаданны�
 | `created_at` / `updated_at` | TIMESTAMP | NOT NULL, UTC | служебные отметки |
 
 Ограничение `uq_application_unique (conference_id, section_id, participant_id)` реализует
-правило «один участник — одна заявка в секции данной конференции».
+правило «один человек — одна заявка в секции данной конференции». Участник здесь — запись,
+найденная по почте из заявки, поэтому из одной универсальной учётной записи можно подать
+заявки на разных людей: ограничение сравнивает данные участника, а не того, кто подал заявку.
 
 ### `invitations` — приглашение (очередь рассылки)
 
@@ -225,6 +159,10 @@ PostgreSQL 16. Схема создаётся SQLAlchemy по метаданны�
 | `paid_at` / `refunded_at` | TIMESTAMP | | время оплаты и возврата |
 | `comment` | TEXT | | комментарий |
 | `created_at` | TIMESTAMP | NOT NULL, UTC | время начисления |
+
+Вычисляемое свойство `application_status` (статус связанной заявки) отдаётся в API в поле
+`application_status` — интерфейс использует его, чтобы предлагать возврат только по отозванной
+или отклонённой заявке. В таблице это значение не хранится.
 
 ### `theses` — тезисы доклада
 
@@ -261,7 +199,9 @@ PostgreSQL 16. Схема создаётся SQLAlchemy по метаданны�
 | `comment` | TEXT | | комментарий |
 | `created_at` | TIMESTAMP | NOT NULL, UTC | время создания |
 
-Вычисляемое свойство `nights` = `check_out − check_in` в ночах.
+Вычисляемое свойство `nights` = `check_out − check_in` в ночах. Отклонение запроса
+администратором (метод `POST /api/v1/hotel-bookings/{id}/reject`) переводит бронь в статус
+`cancelled` и дописывает причину отказа в поле `comment`.
 
 ### `audit_log` — журнал значимых действий
 
@@ -322,7 +262,7 @@ PostgreSQL 16. Схема создаётся SQLAlchemy по метаданны�
 
 `users.participant_id` дополнительно объявлен как `UNIQUE`: у одной записи участника может быть
 не более одной учётной записи (связь «один к одному»). Поле допускает `NULL` — учётная запись
-без связанного участника (например, организатор, не подающий заявки) допустима.
+без связанного участника (например, администратор, не участвующий в конференции) допустима.
 
 ## Требования к хранению данных
 
